@@ -50,34 +50,41 @@ Logs de diagnóstico ficam em:
 %ProgramData%\MPPSync\mppsync.log
 ```
 
-## Gerando o instalador
+## Gerando o instalador (GitHub Actions)
 
-Esta seção é só para a máquina de build. O usuário final não executa estes passos.
+Caminho recomendado: o workflow `.github/workflows/build-installer.yml` gera o instalador no GitHub.
 
-O build precisa ser feito em uma máquina Windows. Instale antes:
+### Release (para baixar na VM)
 
-- Python 3.12+
-- Inno Setup 6
+1. Faça push do código para o remoto.
+2. Crie e envie uma tag:
 
-Depois execute:
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+3. Aguarde o workflow **Build installer** concluir.
+4. Em **Releases** no GitHub, baixe `MPPSync-Setup.exe`.
+
+### Artifact (sem criar Release)
+
+Em todo push em `main`/`master` (ou via **Actions → Build installer → Run workflow**), o instalador fica disponível como artifact `MPPSync-Setup` na execução do workflow.
+
+### Build local (opcional)
+
+Só se quiser gerar na sua máquina Windows. Instale Python 3.12+ e Inno Setup 6, depois:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\build\build.ps1
 ```
 
-O script:
-
-- cria um venv de build;
-- instala dependências e PyInstaller;
-- baixa o JRE Temurin 21;
-- baixa o ODBC Driver 18 for SQL Server;
-- gera `dist\MPPSync\`;
-- gera `dist\MPPSync-Setup.exe`.
+O script cria um venv, baixa JRE/ODBC Driver, gera `dist\MPPSync\` e `dist\MPPSync-Setup.exe`.
 
 ## Teste na VM
 
-1. Copie `dist\MPPSync-Setup.exe` para a VM.
+1. Baixe `MPPSync-Setup.exe` do Release (ou do artifact) e copie para a VM.
 2. Instale como administrador.
 3. Informe DSN, UID, PWD e pasta monitorada.
 4. Abra o app e confira se o status ficou **Conectado**.
