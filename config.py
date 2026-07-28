@@ -12,6 +12,14 @@ from dotenv import load_dotenv
 _ENV_PATH = Path(__file__).resolve().parent / ".env"
 load_dotenv(_ENV_PATH)
 
+CONFIG_KEYS = (
+    "ODBC_CONNECT",
+    "ODBC_DSN",
+    "ODBC_UID",
+    "ODBC_PWD",
+    "LOCAL_MPP_DIR",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class Settings:
@@ -62,6 +70,59 @@ def _get_env(*names: str) -> str | None:
     return None
 
 
+def load_config_values() -> dict[str, str]:
+    """Carrega valores atuais para preencher a interface sem validar obrigatórios."""
+    load_dotenv(_ENV_PATH, override=True)
+    return {key: os.getenv(key, "") for key in CONFIG_KEYS}
+
+
+def save_config_values(values: dict[str, str], env_path: Path = _ENV_PATH) -> None:
+    """Atualiza chaves conhecidas no .env preservando outras linhas existentes."""
+    normalized_values = {
+        key: values.get(key, "").strip()
+        for key in CONFIG_KEYS
+        if key in values
+    }
+    existing_lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+    seen_keys: set[str] = set()
+    updated_lines: list[str] = []
+
+    for line in existing_lines:
+        key = _parse_env_key(line)
+        if key in normalized_values:
+            updated_lines.append(_format_env_line(key, normalized_values[key]))
+            seen_keys.add(key)
+        else:
+            updated_lines.append(line)
+
+    for key in CONFIG_KEYS:
+        if key in normalized_values and key not in seen_keys:
+            updated_lines.append(_format_env_line(key, normalized_values[key]))
+
+    env_path.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+    load_dotenv(env_path, override=True)
+
+
+def _parse_env_key(line: str) -> str | None:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#") or "=" not in stripped:
+        return None
+    key, _value = stripped.split("=", 1)
+    key = key.strip()
+    return key if key in CONFIG_KEYS else None
+
+
+def _format_env_line(key: str, value: str) -> str:
+    return f"{key}={_quote_env_value(value)}"
+
+
+def _quote_env_value(value: str) -> str:
+    if not value:
+        return ""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def _resolve_local_mpp_dir() -> Path:
     """Resolve a pasta local que contém arquivos .mpp."""
     raw = os.getenv("LOCAL_MPP_DIR", "").strip()
@@ -75,6 +136,7 @@ def _resolve_local_mpp_dir() -> Path:
 
 def load_settings() -> Settings:
     """Carrega e valida todas as configurações necessárias para o pipeline."""
+    load_dotenv(_ENV_PATH, override=True)
     odbc_connect = _get_env("ODBC_CONNECT")
     odbc_dsn = _get_env("ODBC_DSN")
 

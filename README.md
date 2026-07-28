@@ -30,17 +30,20 @@ LOCAL_MPP_DIR=C:\caminho\para\mpps
 
 O DSN `PRICIVILRIA` precisa existir no ODBC da VM (User DSN ou System DSN). Se a lista estiver vazia, peça ao time o servidor/banco e crie o DSN antes de rodar o pipeline.
 
-5. Inicie o watcher:
+5. Abra a interface gráfica:
 
 ```powershell
 python main.py
 ```
 
-Para iniciar junto com a VM, crie uma tarefa no Agendador de Tarefas do Windows com:
+A interface permite:
 
-- Programa: caminho completo do `python.exe` do ambiente usado pelo projeto.
-- Argumentos: `main.py`.
-- Iniciar em: pasta do projeto onde ficam `main.py` e `.env`.
+- conectar e desconectar o watcher;
+- ver o status, o DSN conectado e a pasta monitorada.
+
+Ao abrir, o app tenta conectar automaticamente usando o `.env`. A inicialização junto com o Windows é registrada automaticamente em toda abertura do app (não há opção para desativar pela interface).
+
+Ao fechar a janela, o app continua rodando na bandeja do sistema. Use o ícone da bandeja para mostrar a janela novamente ou **Sair**, que encerra totalmente o app.
 
 ## Banco
 

@@ -316,31 +316,91 @@ def run_pipeline(settings: Settings) -> None:
 
 def watch_project_folder(settings: Settings) -> None:
     """Observa continuamente a pasta local e processa .mpp salvos."""
-    runtime = PipelineRuntime(settings)
-    event_handler = MppWatchHandler(runtime)
-    observer = Observer()
-
-    observer.schedule(event_handler, str(settings.local_mpp_dir), recursive=False)
-    observer.start()
-
-    logger.info("Watcher iniciado. Pasta observada: %s", settings.local_mpp_dir)
-    logger.info("Pressione Ctrl+C para encerrar.")
+    service = WatcherService(settings)
+    service.start()
 
     try:
-        while observer.is_alive():
-            observer.join(timeout=1)
+        while service.is_running:
+            time.sleep(1)
     except KeyboardInterrupt:
         logger.info("Interrupção recebida. Encerrando watcher...")
     finally:
+        service.stop()
+
+
+class WatcherService:
+    """Controla o watcher em background para uso por CLI ou interface gráfica."""
+
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+        self._observer: Observer | None = None
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+
+    @property
+    def settings(self) -> Settings:
+        return self._settings
+
+    @property
+    def is_running(self) -> bool:
+        return self._observer is not None and self._observer.is_alive()
+
+    def start(self) -> None:
+        """Inicia a observação da pasta configurada em uma thread daemon."""
+        with self._lock:
+            if self.is_running:
+                return
+
+            runtime = PipelineRuntime(self._settings)
+            event_handler = MppWatchHandler(runtime)
+            observer = Observer()
+            observer.schedule(
+                event_handler,
+                str(self._settings.local_mpp_dir),
+                recursive=False,
+            )
+            observer.start()
+
+            self._observer = observer
+            self._thread = threading.Thread(
+                target=self._join_observer,
+                name="mpp-watcher",
+                daemon=True,
+            )
+            self._thread.start()
+
+        logger.info("Watcher iniciado. Pasta observada: %s", self._settings.local_mpp_dir)
+
+    def stop(self) -> None:
+        """Para o watcher e aguarda a thread encerrar."""
+        with self._lock:
+            observer = self._observer
+            thread = self._thread
+            self._observer = None
+            self._thread = None
+
+        if observer is None:
+            return
+
         observer.stop()
         observer.join()
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=2)
         logger.info("Watcher encerrado.")
+
+    def _join_observer(self) -> None:
+        observer = self._observer
+        if observer is None:
+            return
+        while observer.is_alive():
+            observer.join(timeout=1)
 
 
 def main() -> None:
     """Ponto de entrada do script."""
-    settings = load_settings()
-    watch_project_folder(settings)
+    from gui import App
+
+    App().run()
 
 
 if __name__ == "__main__":
