@@ -1,5 +1,5 @@
 #define MyAppName "MPPSync"
-#define MyAppVersion "1.0.4"
+#define MyAppVersion "1.0.5"
 #define MyAppPublisher "JP"
 #define MyAppExeName "MPPSync.exe"
 
@@ -43,6 +43,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 ; Em update silencioso o driver já está instalado; não reinstala nem reabre o wizard.
 Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\msodbcsql.msi"" /qn IACCEPTMSODBCSQLLICENSETERMS=YES"; StatusMsg: "Instalando ODBC Driver 18 for SQL Server..."; Flags: waituntilterminated skipifsilent
 Filename: "{app}\{#MyAppExeName}"; Description: "Abrir {#MyAppName}"; Flags: nowait postinstall skipifsilent
+; Update in-app reabre o exe via script após /VERYSILENT.
 
 [Code]
 var

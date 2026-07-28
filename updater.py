@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import re
-import subprocess
 import tempfile
 import urllib.error
 import urllib.request
@@ -15,7 +14,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-APP_VERSION = "1.0.4"
+APP_VERSION = "1.0.5"
 GITHUB_REPO = "joaoreider/mpp-sync"
 ASSET_NAME = "MPPSync-Setup.exe"
 USER_AGENT = f"MPPSync/{APP_VERSION}"
@@ -107,17 +106,42 @@ def download_installer(download_url: str, destination: Path | None = None) -> Pa
     return target
 
 
+def _installed_app_exe() -> Path:
+    program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+    return Path(program_files) / "MPPSync" / "MPPSync.exe"
+
+
 def launch_installer(installer_path: Path) -> None:
-    """Abre o instalador em modo silencioso para preservar o .env existente."""
-    # /VERYSILENT evita páginas/validações do wizard; .env em ProgramData é preservado.
-    args = [
-        str(installer_path),
-        "/VERYSILENT",
-        "/SUPPRESSMSGBOXES",
-        "/NORESTART",
-        "/CLOSEAPPLICATIONS",
-    ]
-    if os.name == "nt":
-        subprocess.Popen(args, close_fds=True)  # noqa: S603
-    else:
+    """Inicia o instalador elevado, aguarda e reabre o app ao concluir."""
+    if os.name != "nt":
         raise RuntimeError("Atualização automática só está disponível no Windows.")
+
+    import ctypes
+
+    app_exe = _installed_app_exe()
+    bat_path = Path(tempfile.gettempdir()) / "mppsync_update.bat"
+    bat_content = "\r\n".join(
+        [
+            "@echo off",
+            f'"{installer_path}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS',
+            "if errorlevel 1 exit /b 1",
+            f'if exist "{app_exe}" start "" "{app_exe}"',
+        ]
+    ) + "\r\n"
+    bat_path.write_text(bat_content, encoding="utf-8")
+
+    # SW_HIDE = 0; retorno > 32 indica sucesso ao pedir elevação.
+    result = ctypes.windll.shell32.ShellExecuteW(
+        None,
+        "runas",
+        "cmd.exe",
+        f'/c ""{bat_path}""',
+        None,
+        0,
+    )
+    if result <= 32:
+        raise RuntimeError(
+            "Não foi possível iniciar o instalador (UAC cancelado ou falha). "
+            "Baixe o Release e execute MPPSync-Setup.exe como administrador."
+        )
+    logger.info("Instalador de atualização iniciado (ShellExecute=%s)", result)

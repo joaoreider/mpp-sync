@@ -156,7 +156,7 @@ class App:
             f"Nova versão encontrada: v{release.version}\n"
             f"Versão instalada: v{APP_VERSION}\n\n"
             "Deseja baixar e instalar agora?\n"
-            "O app será fechado e a instalação seguirá em segundo plano.",
+            "Pode aparecer o UAC do Windows. O app fechará e deve reabrir sozinho ao terminar.",
             parent=self.root,
         )
         if not confirmed:
@@ -184,7 +184,8 @@ class App:
     def _quit_for_update(self) -> None:
         messagebox.showinfo(
             "Atualizando",
-            "O instalador foi iniciado. O MPP Sync será fechado agora.",
+            "O instalador foi iniciado. O MPP Sync será fechado e deve reabrir "
+            "automaticamente quando a atualização terminar.",
             parent=self.root,
         )
         self.quit_app()
