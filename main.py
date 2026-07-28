@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy.orm import Session
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
+from watchdog.observers import Observer
 
 from config import Settings, load_settings
 from models import Projeto, Tarefa, get_session_factory, init_db
@@ -15,6 +18,7 @@ from project_parser import (
     PROJECT_FILE_EXTENSION,
     ProjetoDTO,
     TarefaDTO,
+    is_project_file,
     parse_project_file,
 )
 
@@ -24,9 +28,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+WATCH_DEBOUNCE_SECONDS = 5.0
+FILE_STABILITY_CHECK_INTERVAL_SECONDS = 1.0
+FILE_STABILITY_REQUIRED_MATCHES = 2
+FILE_STABILITY_TIMEOUT_SECONDS = 60.0
+
 
 def _elapsed_ms(start: float) -> int:
     return int((time.perf_counter() - start) * 1000)
+
+
+def _is_temporary_project_path(path: Path) -> bool:
+    """Ignora arquivos temporários comuns durante salvamento no Windows/MS Project."""
+    return path.name.startswith(("~$", ".")) or path.suffix.lower() != PROJECT_FILE_EXTENSION
+
+
+def _is_project_candidate(path: Path) -> bool:
+    return is_project_file(path) and not _is_temporary_project_path(path)
 
 
 def collect_project_files(settings: Settings) -> list[Path]:
@@ -142,14 +160,128 @@ def process_project_file(session: Session, project_path: Path) -> None:
     )
 
 
+class PipelineRuntime:
+    """Mantém recursos compartilhados para processar eventos do watcher."""
+
+    def __init__(self, settings: Settings) -> None:
+        db_start = time.perf_counter()
+        init_db(settings.database_url)
+        self.session_factory = get_session_factory(settings.database_url)
+        self._process_lock = threading.Lock()
+        logger.info("Banco inicializado em %d ms.", _elapsed_ms(db_start))
+
+    def process_path(self, project_path: Path) -> None:
+        """Processa um arquivo por vez para evitar disputa entre eventos próximos."""
+        with self._process_lock:
+            with self.session_factory() as session:
+                process_project_file(session, project_path)
+
+
+def wait_until_file_is_stable(project_path: Path) -> bool:
+    """Aguarda tamanho e mtime estabilizarem antes de ler o .mpp."""
+    deadline = time.monotonic() + FILE_STABILITY_TIMEOUT_SECONDS
+    previous_signature: tuple[int, int] | None = None
+    stable_matches = 0
+
+    while time.monotonic() < deadline:
+        try:
+            stat = project_path.stat()
+        except FileNotFoundError:
+            stable_matches = 0
+            previous_signature = None
+            time.sleep(FILE_STABILITY_CHECK_INTERVAL_SECONDS)
+            continue
+
+        signature = (stat.st_size, stat.st_mtime_ns)
+        if stat.st_size > 0 and signature == previous_signature:
+            stable_matches += 1
+            if stable_matches >= FILE_STABILITY_REQUIRED_MATCHES:
+                logger.info("Arquivo estável para processamento: %s", project_path)
+                return True
+        else:
+            stable_matches = 0
+            previous_signature = signature
+
+        time.sleep(FILE_STABILITY_CHECK_INTERVAL_SECONDS)
+
+    logger.warning(
+        "Tempo esgotado aguardando estabilidade do arquivo: %s",
+        project_path,
+    )
+    return False
+
+
+class MppWatchHandler(FileSystemEventHandler):
+    """Agenda processamento de arquivos .mpp detectados pelo watchdog."""
+
+    def __init__(self, runtime: PipelineRuntime) -> None:
+        super().__init__()
+        self._runtime = runtime
+        self._timers: dict[Path, threading.Timer] = {}
+        self._timer_lock = threading.Lock()
+
+    def on_created(self, event: FileSystemEvent) -> None:
+        self._schedule_event_path(event)
+
+    def on_modified(self, event: FileSystemEvent) -> None:
+        self._schedule_event_path(event)
+
+    def on_moved(self, event: FileSystemEvent) -> None:
+        dest_path = getattr(event, "dest_path", "")
+        if dest_path:
+            self._schedule_path(Path(dest_path))
+
+    def _schedule_event_path(self, event: FileSystemEvent) -> None:
+        if event.is_directory:
+            return
+        self._schedule_path(Path(event.src_path))
+
+    def _schedule_path(self, project_path: Path) -> None:
+        if not _is_project_candidate(project_path):
+            return
+
+        with self._timer_lock:
+            existing_timer = self._timers.pop(project_path, None)
+            if existing_timer is not None:
+                existing_timer.cancel()
+
+            timer = threading.Timer(
+                WATCH_DEBOUNCE_SECONDS,
+                self._process_after_debounce,
+                args=(project_path,),
+            )
+            timer.daemon = True
+            self._timers[project_path] = timer
+            timer.start()
+
+        logger.info(
+            "Arquivo .mpp detectado; aguardando %.1f s antes de validar: %s",
+            WATCH_DEBOUNCE_SECONDS,
+            project_path,
+        )
+
+    def _process_after_debounce(self, project_path: Path) -> None:
+        with self._timer_lock:
+            self._timers.pop(project_path, None)
+
+        if not project_path.exists():
+            logger.warning("Arquivo detectado não existe mais: %s", project_path)
+            return
+
+        if not wait_until_file_is_stable(project_path):
+            return
+
+        try:
+            self._runtime.process_path(project_path)
+        except Exception:
+            logger.exception("Falha ao processar arquivo detectado: %s", project_path)
+
+
 def run_pipeline(settings: Settings) -> None:
     """Executa o pipeline completo de ETL."""
     pipeline_start = time.perf_counter()
 
-    db_start = time.perf_counter()
-    init_db(settings.database_url)
-    session_factory = get_session_factory(settings.database_url)
-    logger.info("Banco inicializado em %d ms.", _elapsed_ms(db_start))
+    runtime = PipelineRuntime(settings)
 
     logger.info("Pasta observada: %s", settings.local_mpp_dir)
     project_files = collect_project_files(settings)
@@ -167,8 +299,7 @@ def run_pipeline(settings: Settings) -> None:
 
     for project_path in project_files:
         try:
-            with session_factory() as session:
-                process_project_file(session, project_path)
+            runtime.process_path(project_path)
             success_count += 1
         except Exception:
             failure_count += 1
@@ -183,10 +314,33 @@ def run_pipeline(settings: Settings) -> None:
     )
 
 
+def watch_project_folder(settings: Settings) -> None:
+    """Observa continuamente a pasta local e processa .mpp salvos."""
+    runtime = PipelineRuntime(settings)
+    event_handler = MppWatchHandler(runtime)
+    observer = Observer()
+
+    observer.schedule(event_handler, str(settings.local_mpp_dir), recursive=False)
+    observer.start()
+
+    logger.info("Watcher iniciado. Pasta observada: %s", settings.local_mpp_dir)
+    logger.info("Pressione Ctrl+C para encerrar.")
+
+    try:
+        while observer.is_alive():
+            observer.join(timeout=1)
+    except KeyboardInterrupt:
+        logger.info("Interrupção recebida. Encerrando watcher...")
+    finally:
+        observer.stop()
+        observer.join()
+        logger.info("Watcher encerrado.")
+
+
 def main() -> None:
     """Ponto de entrada do script."""
     settings = load_settings()
-    run_pipeline(settings)
+    watch_project_folder(settings)
 
 
 if __name__ == "__main__":

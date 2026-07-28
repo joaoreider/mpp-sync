@@ -39,7 +39,7 @@ class Projeto(Base):
     data_fim: Mapped[date | None] = mapped_column(Date)
     percentual_concluido: Mapped[float | None] = mapped_column(Numeric(5, 2))
     atualizado_em: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        DateTime,
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
@@ -86,7 +86,11 @@ class Tarefa(Base):
 def get_engine(database_url: str) -> Engine:
     """Cria (ou reutiliza) engine SQLAlchemy a partir da connection string."""
     if database_url not in _engine_cache:
-        _engine_cache[database_url] = create_engine(database_url, future=True)
+        _engine_cache[database_url] = create_engine(
+            database_url,
+            future=True,
+            fast_executemany=True,
+        )
     return _engine_cache[database_url]
 
 
@@ -106,19 +110,22 @@ def _ensure_tarefa_columns(engine) -> None:
     new_columns = {
         "inicio_do_plano_base": "DATE",
         "conclusao_do_plano_base": "DATE",
-        "duracao": "NUMERIC(18, 2)",
+        "duracao": "DECIMAL(18, 2)",
     }
 
     with engine.begin() as connection:
         for column_name, column_type in new_columns.items():
             if column_name not in existing:
                 connection.execute(
-                    text(f"ALTER TABLE tarefas ADD COLUMN {column_name} {column_type}")
+                    text(f"ALTER TABLE tarefas ADD {column_name} {column_type}")
                 )
 
 
 def init_db(database_url: str) -> None:
-    """Cria tabelas caso ainda não existam."""
+    """Cria apenas as tabelas deste projeto caso ainda não existam."""
     engine = get_engine(database_url)
-    Base.metadata.create_all(engine)
+    Base.metadata.create_all(
+        engine,
+        tables=[Projeto.__table__, Tarefa.__table__],
+    )
     _ensure_tarefa_columns(engine)
