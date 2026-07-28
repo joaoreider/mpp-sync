@@ -15,6 +15,14 @@ from PIL import Image, ImageDraw
 import autostart
 from config import Settings, load_config_values, load_settings
 from main import WatcherService
+from updater import (
+    APP_VERSION,
+    ReleaseInfo,
+    download_installer,
+    fetch_latest_release,
+    is_newer,
+    launch_installer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +54,8 @@ class App:
         self.status_var = tk.StringVar(value="Desconectado")
         self.dsn_var = tk.StringVar(value=self._dsn_from_config())
         self.folder_var = tk.StringVar(value=self._folder_from_config())
+        self.version_var = tk.StringVar(value=f"v{APP_VERSION}")
+        self._update_in_progress = False
 
         self._configure_style()
         self._build_layout()
@@ -112,6 +122,84 @@ class App:
             self.tray_icon.stop()
         self.root.destroy()
 
+    def check_for_updates(self) -> None:
+        if self._update_in_progress:
+            return
+        self._update_in_progress = True
+        self.update_button.state(["disabled"])
+        threading.Thread(
+            target=self._check_for_updates_worker,
+            name="mpp-update",
+            daemon=True,
+        ).start()
+
+    def _check_for_updates_worker(self) -> None:
+        try:
+            release = fetch_latest_release()
+        except Exception as exc:
+            self._call_on_ui(lambda: self._on_update_error(str(exc)))
+            return
+
+        if not is_newer(release.version):
+            self._call_on_ui(
+                lambda: self._on_update_finished(
+                    f"Você já está na versão mais recente (v{APP_VERSION})."
+                )
+            )
+            return
+
+        self._call_on_ui(lambda: self._confirm_and_download_update(release))
+
+    def _confirm_and_download_update(self, release: ReleaseInfo) -> None:
+        confirmed = messagebox.askyesno(
+            "Atualização disponível",
+            f"Nova versão encontrada: v{release.version}\n"
+            f"Versão instalada: v{APP_VERSION}\n\n"
+            "Deseja baixar e instalar agora?\n"
+            "O app será fechado e a instalação seguirá em segundo plano.",
+            parent=self.root,
+        )
+        if not confirmed:
+            self._on_update_finished()
+            return
+
+        self.update_button.configure(text="Baixando...")
+        threading.Thread(
+            target=self._download_and_install_worker,
+            args=(release.download_url,),
+            name="mpp-update-download",
+            daemon=True,
+        ).start()
+
+    def _download_and_install_worker(self, download_url: str) -> None:
+        try:
+            installer_path = download_installer(download_url)
+            launch_installer(installer_path)
+        except Exception as exc:
+            self._call_on_ui(lambda: self._on_update_error(str(exc)))
+            return
+
+        self._call_on_ui(self._quit_for_update)
+
+    def _quit_for_update(self) -> None:
+        messagebox.showinfo(
+            "Atualizando",
+            "O instalador foi iniciado. O MPP Sync será fechado agora.",
+            parent=self.root,
+        )
+        self.quit_app()
+
+    def _on_update_error(self, message: str) -> None:
+        messagebox.showerror("Falha na atualização", message, parent=self.root)
+        self._on_update_finished()
+
+    def _on_update_finished(self, info_message: str | None = None) -> None:
+        self._update_in_progress = False
+        self.update_button.state(["!disabled"])
+        self.update_button.configure(text="Atualizar")
+        if info_message:
+            messagebox.showinfo("Atualização", info_message, parent=self.root)
+
     def _auto_connect(self) -> None:
         self.connect(silent=True)
 
@@ -147,6 +235,13 @@ class App:
             fg=MUTED,
             font=("Segoe UI", 10),
         ).pack()
+        tk.Label(
+            outer,
+            textvariable=self.version_var,
+            bg=BG,
+            fg=MUTED,
+            font=("Segoe UI", 9),
+        ).pack(pady=(4, 0))
 
         card = tk.Frame(
             outer,
@@ -220,7 +315,15 @@ class App:
             command=self.toggle_connection,
             style="Toggle.TButton",
         )
-        self.toggle_button.pack(pady=(34, 30), ipadx=18)
+        self.toggle_button.pack(pady=(34, 12), ipadx=18)
+
+        self.update_button = ttk.Button(
+            outer,
+            text="Atualizar",
+            command=self.check_for_updates,
+            style="Toggle.TButton",
+        )
+        self.update_button.pack(pady=(0, 24), ipadx=18)
 
     def _configure_style(self) -> None:
         style = ttk.Style(self.root)
@@ -265,6 +368,7 @@ class App:
             "MPP Sync",
             menu=pystray.Menu(
                 pystray.MenuItem("Mostrar", self._tray_show, default=True),
+                pystray.MenuItem("Atualizar", self._tray_update),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Sair", self._tray_quit),
             ),
@@ -328,6 +432,9 @@ class App:
 
     def _tray_show(self, _icon: pystray.Icon, _item: pystray.MenuItem) -> None:
         self._call_on_ui(self.show_window)
+
+    def _tray_update(self, _icon: pystray.Icon, _item: pystray.MenuItem) -> None:
+        self._call_on_ui(self.check_for_updates)
 
     def _tray_quit(self, _icon: pystray.Icon, _item: pystray.MenuItem) -> None:
         self._call_on_ui(self.quit_app)

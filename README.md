@@ -42,7 +42,9 @@ A interface permite:
 - conectar e desconectar o watcher;
 - ver o status, o DSN conectado e a pasta monitorada.
 
-Ao fechar a janela, o app continua rodando na bandeja do sistema. Use o ícone da bandeja para mostrar a janela novamente ou **Sair**, que encerra totalmente o app.
+Ao fechar a janela, o app continua rodando na bandeja do sistema. Use o ícone da bandeja para mostrar a janela novamente, **Atualizar** ou **Sair**.
+
+O botão **Atualizar** (também no tray) consulta o último Release no GitHub, baixa o `MPPSync-Setup.exe` e aplica a atualização em modo silencioso, preservando o `.env` já configurado.
 
 Logs de diagnóstico ficam em:
 
@@ -56,16 +58,23 @@ Caminho recomendado: o workflow `.github/workflows/build-installer.yml` gera o i
 
 ### Release (para baixar na VM)
 
-1. Faça push do código para o remoto.
-2. Crie e envie uma tag:
+Na raiz do repo, use o script interativo:
+
+```bash
+./update-version.sh
+```
+
+Ele pergunta o tipo de incremento (patch/minor/major), a mensagem de commit e notas opcionais do Release; depois atualiza a versão em `updater.py` e `build/installer.iss`, faz commit, push e publica a tag `vX.Y.Z`.
+
+Alternativa manual:
 
 ```bash
 git tag v1.0.0
 git push origin v1.0.0
 ```
 
-3. Aguarde o workflow **Build installer** concluir.
-4. Em **Releases** no GitHub, baixe `MPPSync-Setup.exe`.
+1. Aguarde o workflow **Build installer** concluir.
+2. Em **Releases** no GitHub, baixe `MPPSync-Setup.exe`.
 
 ### Artifact (sem criar Release)
 

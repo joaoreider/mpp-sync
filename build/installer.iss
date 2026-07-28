@@ -1,5 +1,5 @@
 #define MyAppName "MPPSync"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.2"
 #define MyAppPublisher "JP"
 #define MyAppExeName "MPPSync.exe"
 
@@ -147,8 +147,12 @@ var
   MppDir: String;
   EnvContent: String;
 begin
-  if CurStep = ssPostInstall then
+    if CurStep = ssPostInstall then
   begin
+    // Em atualização silenciosa, preserva o .env já configurado.
+    if WizardSilent then
+      Exit;
+
     EnvDir := ExpandConstant('{commonappdata}\{#MyAppName}');
     EnvFile := EnvDir + '\.env';
     MppDir := TrimValue(FolderPage.Values[0]);

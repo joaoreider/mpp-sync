@@ -86,10 +86,13 @@ class Tarefa(Base):
 def get_engine(database_url: str) -> Engine:
     """Cria (ou reutiliza) engine SQLAlchemy a partir da connection string."""
     if database_url not in _engine_cache:
+        # use_setinputsizes=False evita HY104 (Invalid precision value)
+        # com o driver legado "SQL Server" e CAST(? AS NVARCHAR(max)).
         _engine_cache[database_url] = create_engine(
             database_url,
             future=True,
             fast_executemany=True,
+            use_setinputsizes=False,
         )
     return _engine_cache[database_url]
 
