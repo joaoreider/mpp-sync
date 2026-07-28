@@ -1,5 +1,5 @@
 #define MyAppName "MPPSync"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "1.0.4"
 #define MyAppPublisher "JP"
 #define MyAppExeName "MPPSync.exe"
 
@@ -20,6 +20,7 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 UninstallDisplayIcon={app}\{#MyAppExeName}
+CloseApplications=yes
 
 [Languages]
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
@@ -39,7 +40,8 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\msodbcsql.msi"" /qn IACCEPTMSODBCSQLLICENSETERMS=YES"; StatusMsg: "Instalando ODBC Driver 18 for SQL Server..."; Flags: waituntilterminated
+; Em update silencioso o driver já está instalado; não reinstala nem reabre o wizard.
+Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\msodbcsql.msi"" /qn IACCEPTMSODBCSQLLICENSETERMS=YES"; StatusMsg: "Instalando ODBC Driver 18 for SQL Server..."; Flags: waituntilterminated skipifsilent
 Filename: "{app}\{#MyAppExeName}"; Description: "Abrir {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 [Code]
@@ -76,8 +78,62 @@ begin
   Result := (Length(Value) >= 3) and (Value[2] = ':') and ((Value[3] = '\') or (Value[3] = '/'));
 end;
 
-procedure InitializeWizard;
+function UnquoteEnv(Value: String): String;
 begin
+  Result := Trim(Value);
+  if (Length(Result) >= 2) and (Result[1] = '"') and (Result[Length(Result)] = '"') then
+  begin
+    Delete(Result, 1, 1);
+    Delete(Result, Length(Result), 1);
+    StringChangeEx(Result, '\"', '"', True);
+    StringChangeEx(Result, '\\', '\', True);
+  end;
+end;
+
+function ReadEnvValue(const EnvFile, Key: String): String;
+var
+  Lines: TArrayOfString;
+  I, EqPos: Integer;
+  Line, CurrentKey, CurrentValue: String;
+begin
+  Result := '';
+  if not FileExists(EnvFile) then
+    Exit;
+  if not LoadStringsFromFile(EnvFile, Lines) then
+    Exit;
+
+  for I := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    Line := Trim(Lines[I]);
+    if (Line = '') or (Line[1] = '#') then
+      Continue;
+
+    EqPos := Pos('=', Line);
+    if EqPos <= 0 then
+      Continue;
+
+    CurrentKey := Trim(Copy(Line, 1, EqPos - 1));
+    CurrentValue := Trim(Copy(Line, EqPos + 1, MaxInt));
+    if CompareText(CurrentKey, Key) = 0 then
+    begin
+      Result := UnquoteEnv(CurrentValue);
+      Exit;
+    end;
+  end;
+end;
+
+procedure InitializeWizard;
+var
+  EnvFile: String;
+  ExistingDsn, ExistingUid, ExistingPwd, ExistingFolder: String;
+begin
+  EnvFile := ExpandConstant('{commonappdata}\{#MyAppName}\.env');
+  ExistingDsn := ReadEnvValue(EnvFile, 'ODBC_DSN');
+  ExistingUid := ReadEnvValue(EnvFile, 'ODBC_UID');
+  ExistingPwd := ReadEnvValue(EnvFile, 'ODBC_PWD');
+  ExistingFolder := ReadEnvValue(EnvFile, 'LOCAL_MPP_DIR');
+  StringChangeEx(ExistingFolder, '/', '\', True);
+
   DbPage := CreateInputQueryPage(
     wpSelectDir,
     'Configuração do banco',
@@ -87,7 +143,17 @@ begin
   DbPage.Add('DSN:', False);
   DbPage.Add('UID:', False);
   DbPage.Add('PWD:', True);
-  DbPage.Values[0] := 'PRICIVILRIA';
+
+  if ExistingDsn <> '' then
+    DbPage.Values[0] := ExistingDsn
+  else
+    DbPage.Values[0] := 'PRICIVILRIA';
+
+  if ExistingUid <> '' then
+    DbPage.Values[1] := ExistingUid;
+
+  if ExistingPwd <> '' then
+    DbPage.Values[2] := ExistingPwd;
 
   FolderPage := CreateInputDirPage(
     DbPage.ID,
@@ -98,12 +164,20 @@ begin
     ''
   );
   FolderPage.Add('');
-  FolderPage.Values[0] := ExpandConstant('{commonappdata}\{#MyAppName}\mpp');
+
+  if ExistingFolder <> '' then
+    FolderPage.Values[0] := ExistingFolder
+  else
+    FolderPage.Values[0] := ExpandConstant('{commonappdata}\{#MyAppName}\mpp');
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
+
+  // Update in-app usa /SILENT e não deve validar o wizard.
+  if WizardSilent then
+    Exit;
 
   if CurPageID = DbPage.ID then
   begin
@@ -147,14 +221,18 @@ var
   MppDir: String;
   EnvContent: String;
 begin
-    if CurStep = ssPostInstall then
+  if CurStep = ssPostInstall then
   begin
-    // Em atualização silenciosa, preserva o .env já configurado.
-    if WizardSilent then
-      Exit;
-
     EnvDir := ExpandConstant('{commonappdata}\{#MyAppName}');
     EnvFile := EnvDir + '\.env';
+
+    // Em atualização silenciosa, preserva o .env já configurado.
+    if WizardSilent then
+    begin
+      if FileExists(EnvFile) then
+        Exit;
+    end;
+
     MppDir := TrimValue(FolderPage.Values[0]);
 
     ForceDirectories(EnvDir);

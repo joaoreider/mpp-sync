@@ -15,7 +15,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-APP_VERSION = "1.0.3"
+APP_VERSION = "1.0.4"
 GITHUB_REPO = "joaoreider/mpp-sync"
 ASSET_NAME = "MPPSync-Setup.exe"
 USER_AGENT = f"MPPSync/{APP_VERSION}"
@@ -109,8 +109,14 @@ def download_installer(download_url: str, destination: Path | None = None) -> Pa
 
 def launch_installer(installer_path: Path) -> None:
     """Abre o instalador em modo silencioso para preservar o .env existente."""
-    # /SILENT atualiza arquivos sem reabrir o wizard de configuração.
-    args = [str(installer_path), "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"]
+    # /VERYSILENT evita páginas/validações do wizard; .env em ProgramData é preservado.
+    args = [
+        str(installer_path),
+        "/VERYSILENT",
+        "/SUPPRESSMSGBOXES",
+        "/NORESTART",
+        "/CLOSEAPPLICATIONS",
+    ]
     if os.name == "nt":
         subprocess.Popen(args, close_fds=True)  # noqa: S603
     else:
