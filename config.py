@@ -3,13 +3,55 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 
-_ENV_PATH = Path(__file__).resolve().parent / ".env"
+APP_NAME = "MPPSync"
+
+
+def _app_dir() -> Path:
+    """Pasta base do app: junto ao .exe quando empacotado, senão a do código."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def _program_data_dir() -> Path:
+    """Pasta gravável compartilhada por instalações Windows."""
+    program_data = os.getenv("PROGRAMDATA")
+    if program_data:
+        return Path(program_data) / APP_NAME
+    return _app_dir()
+
+
+def app_data_dir() -> Path:
+    """Pasta gravável para config e logs do app."""
+    data_dir = _program_data_dir() if getattr(sys, "frozen", False) else _app_dir()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir
+
+
+def _env_candidates() -> tuple[Path, ...]:
+    app_env = _app_dir() / ".env"
+    if getattr(sys, "frozen", False):
+        return (_program_data_dir() / ".env", app_env)
+    return (app_env,)
+
+
+def _env_path() -> Path:
+    """Resolve o .env ativo, priorizando ProgramData quando empacotado."""
+    candidates = _env_candidates()
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+_ENV_PATH = _env_path()
 load_dotenv(_ENV_PATH)
 
 CONFIG_KEYS = (
@@ -72,18 +114,23 @@ def _get_env(*names: str) -> str | None:
 
 def load_config_values() -> dict[str, str]:
     """Carrega valores atuais para preencher a interface sem validar obrigatórios."""
-    load_dotenv(_ENV_PATH, override=True)
+    load_dotenv(_env_path(), override=True)
     return {key: os.getenv(key, "") for key in CONFIG_KEYS}
 
 
-def save_config_values(values: dict[str, str], env_path: Path = _ENV_PATH) -> None:
+def save_config_values(values: dict[str, str], env_path: Path | None = None) -> None:
     """Atualiza chaves conhecidas no .env preservando outras linhas existentes."""
+    active_env_path = env_path or _env_path()
     normalized_values = {
         key: values.get(key, "").strip()
         for key in CONFIG_KEYS
         if key in values
     }
-    existing_lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+    existing_lines = (
+        active_env_path.read_text(encoding="utf-8").splitlines()
+        if active_env_path.exists()
+        else []
+    )
     seen_keys: set[str] = set()
     updated_lines: list[str] = []
 
@@ -99,8 +146,9 @@ def save_config_values(values: dict[str, str], env_path: Path = _ENV_PATH) -> No
         if key in normalized_values and key not in seen_keys:
             updated_lines.append(_format_env_line(key, normalized_values[key]))
 
-    env_path.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
-    load_dotenv(env_path, override=True)
+    active_env_path.parent.mkdir(parents=True, exist_ok=True)
+    active_env_path.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+    load_dotenv(active_env_path, override=True)
 
 
 def _parse_env_key(line: str) -> str | None:
@@ -129,6 +177,7 @@ def _resolve_local_mpp_dir() -> Path:
     if not raw:
         raise ValueError("LOCAL_MPP_DIR é obrigatório")
     mpp_dir = Path(raw)
+    mpp_dir.mkdir(parents=True, exist_ok=True)
     if not mpp_dir.is_dir():
         raise ValueError(f"LOCAL_MPP_DIR não existe ou não é uma pasta: {mpp_dir}")
     return mpp_dir
@@ -136,7 +185,7 @@ def _resolve_local_mpp_dir() -> Path:
 
 def load_settings() -> Settings:
     """Carrega e valida todas as configurações necessárias para o pipeline."""
-    load_dotenv(_ENV_PATH, override=True)
+    load_dotenv(_env_path(), override=True)
     odbc_connect = _get_env("ODBC_CONNECT")
     odbc_dsn = _get_env("ODBC_DSN")
 

@@ -17,6 +17,8 @@ def is_supported() -> bool:
 
 def build_startup_command() -> str:
     """Monta comando para iniciar a GUI sem console quando possível."""
+    if getattr(sys, "frozen", False):
+        return f'"{Path(sys.executable).resolve()}"'
     project_dir = Path(__file__).resolve().parent
     main_py = project_dir / "main.py"
     executable = _pythonw_executable()

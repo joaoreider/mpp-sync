@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from config import Settings, load_settings
+from config import Settings, app_data_dir, load_settings
 from models import Projeto, Tarefa, get_session_factory, init_db
 from project_parser import (
     PROJECT_FILE_EXTENSION,
@@ -22,9 +22,21 @@ from project_parser import (
     parse_project_file,
 )
 
+def _logging_handlers() -> list[logging.Handler]:
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    try:
+        handlers.append(
+            logging.FileHandler(app_data_dir() / "mppsync.log", encoding="utf-8")
+        )
+    except OSError:
+        pass
+    return handlers
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=_logging_handlers(),
 )
 logger = logging.getLogger(__name__)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -68,14 +69,28 @@ def _ensure_jvm() -> None:
 
     if not jpype.isJVMStarted():
         try:
-            jpype.startJVM()
+            bundled_jvm = _bundled_jvm_path()
+            if bundled_jvm is not None:
+                jpype.startJVM(str(bundled_jvm))
+            else:
+                jpype.startJVM()
         except jpype.JVMNotFoundException as exc:
             raise RuntimeError(
-                "Leitura de .mpp requer Java (JRE 8+). "
-                "A imagem Docker do projeto já instala esse requisito."
+                "Leitura de .mpp requer Java. O instalador inclui um JRE; "
+                "reinstale o app se esse erro aparecer na VM."
             ) from exc
 
     _jvm_started = True
+
+
+def _bundled_jvm_path() -> Path | None:
+    """Retorna a JVM do JRE empacotado pelo instalador Windows."""
+    if not getattr(sys, "frozen", False):
+        return None
+
+    app_dir = Path(sys.executable).resolve().parent
+    jvm_dll = app_dir / "jre" / "bin" / "server" / "jvm.dll"
+    return jvm_dll if jvm_dll.exists() else None
 
 
 def _java_number(value) -> float | None:

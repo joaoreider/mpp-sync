@@ -2,48 +2,98 @@
 
 Pipeline para importar arquivos nativos do Microsoft Project (`.mpp`) de uma pasta local para um banco SQL Server acessado via ODBC (DSN).
 
-## Rodando na VM Windows (produção)
+## Instalando na VM Windows
 
-1. Configure o DSN de utilizador no **Administrador da Origem de Dados ODBC (64 bits)** e teste a ligação.
-2. Instale o [ODBC Driver for SQL Server](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server) se ainda não estiver disponível.
-3. Instale as dependências no ambiente Python do projeto:
+Use o instalador `MPPSync-Setup.exe`. Ele entrega o app, um JRE portátil para ler `.mpp`, instala o ODBC Driver 18 for SQL Server e cria o `.env` durante a instalação.
+
+O usuário final **não precisa instalar Python nem Inno Setup**. Esses dois itens são usados somente na máquina que gera o instalador. Ao executar o setup, o Windows pedirá permissão de administrador (UAC) para instalar o driver ODBC e gravar os arquivos do app.
+
+1. Execute `MPPSync-Setup.exe` como administrador.
+2. Preencha os campos do instalador:
+   - DSN
+   - UID
+   - PWD
+   - Pasta monitorada
+3. Conclua a instalação e deixe a opção de abrir o app marcada.
+
+O instalador grava a configuração em:
 
 ```powershell
-python -m pip install -r requirements.txt
+%ProgramData%\MPPSync\.env
 ```
 
-4. Configure o `.env` com a connection string que o time passou (use aspas se a senha tiver `#`):
-
-```env
-ODBC_CONNECT="DSN=PRICIVILRIA;Uid=pquery;Pwd=sua_senha"
-LOCAL_MPP_DIR=C:\caminho\para\mpps
-```
-
-Alternativa com variáveis separadas:
+Exemplo do arquivo gerado:
 
 ```env
 ODBC_DSN=PRICIVILRIA
 ODBC_UID=pquery
 ODBC_PWD="sua_senha"
-LOCAL_MPP_DIR=C:\caminho\para\mpps
+LOCAL_MPP_DIR=C:/MPPSync/mpp
 ```
 
-O DSN `PRICIVILRIA` precisa existir no ODBC da VM (User DSN ou System DSN). Se a lista estiver vazia, peça ao time o servidor/banco e crie o DSN antes de rodar o pipeline.
+O DSN informado precisa existir no ODBC da VM e apontar para o SQL Server correto. O instalador pede o nome do DSN e as credenciais, mas não cria a origem ODBC com servidor/banco.
 
-5. Abra a interface gráfica:
+## Uso
 
-```powershell
-python main.py
-```
+Ao abrir, o app tenta conectar automaticamente usando a configuração gravada pelo instalador. A inicialização junto com o Windows é registrada automaticamente.
 
 A interface permite:
 
 - conectar e desconectar o watcher;
 - ver o status, o DSN conectado e a pasta monitorada.
 
-Ao abrir, o app tenta conectar automaticamente usando o `.env`. A inicialização junto com o Windows é registrada automaticamente em toda abertura do app (não há opção para desativar pela interface).
-
 Ao fechar a janela, o app continua rodando na bandeja do sistema. Use o ícone da bandeja para mostrar a janela novamente ou **Sair**, que encerra totalmente o app.
+
+Logs de diagnóstico ficam em:
+
+```powershell
+%ProgramData%\MPPSync\mppsync.log
+```
+
+## Gerando o instalador
+
+Esta seção é só para a máquina de build. O usuário final não executa estes passos.
+
+O build precisa ser feito em uma máquina Windows. Instale antes:
+
+- Python 3.12+
+- Inno Setup 6
+
+Depois execute:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\build\build.ps1
+```
+
+O script:
+
+- cria um venv de build;
+- instala dependências e PyInstaller;
+- baixa o JRE Temurin 21;
+- baixa o ODBC Driver 18 for SQL Server;
+- gera `dist\MPPSync\`;
+- gera `dist\MPPSync-Setup.exe`.
+
+## Teste na VM
+
+1. Copie `dist\MPPSync-Setup.exe` para a VM.
+2. Instale como administrador.
+3. Informe DSN, UID, PWD e pasta monitorada.
+4. Abra o app e confira se o status ficou **Conectado**.
+5. Copie ou salve um `.mpp` na pasta monitorada.
+6. Valide se os dados foram persistidos no banco.
+
+## Desenvolvimento local
+
+Para rodar pelo código:
+
+```powershell
+python -m pip install -r requirements.txt
+python main.py
+```
+
+Nesse modo, o app lê `.env` na raiz do projeto.
 
 ## Banco
 

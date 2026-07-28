@@ -9,6 +9,14 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+!build/
+build/*
+!build/MPPSync.spec
+!build/build.ps1
+!build/installer.iss
+build/.venv-build/
+build/pyinstaller-work/
+build/runtime/
 develop-eggs/
 dist/
 downloads/
