@@ -156,7 +156,8 @@ class App:
             f"Nova versão encontrada: v{release.version}\n"
             f"Versão instalada: v{APP_VERSION}\n\n"
             "Deseja baixar e instalar agora?\n"
-            "Pode aparecer o UAC do Windows. O app fechará e deve reabrir sozinho ao terminar.",
+            "Vai aparecer o UAC do Windows — aceite para continuar.\n"
+            "O app fechará durante a instalação e deve reabrir sozinho.",
             parent=self.root,
         )
         if not confirmed:
@@ -174,21 +175,26 @@ class App:
     def _download_and_install_worker(self, download_url: str) -> None:
         try:
             installer_path = download_installer(download_url)
-            launch_installer(installer_path)
+            log_path = launch_installer(installer_path)
         except Exception as exc:
             self._call_on_ui(lambda: self._on_update_error(str(exc)))
             return
 
-        self._call_on_ui(self._quit_for_update)
+        self._call_on_ui(lambda: self._on_update_launched(str(log_path)))
 
-    def _quit_for_update(self) -> None:
+    def _on_update_launched(self, log_path: str) -> None:
         messagebox.showinfo(
             "Atualizando",
-            "O instalador foi iniciado. O MPP Sync será fechado e deve reabrir "
-            "automaticamente quando a atualização terminar.",
+            "Aceite o UAC do Windows para instalar.\n\n"
+            "O MPP Sync será fechado pelo instalador e deve reabrir ao terminar.\n"
+            "Se cancelar o UAC, o app continua aberto.\n\n"
+            f"Se não reabrir, use o atalho do Menu Iniciar.\n"
+            f"Log do update: {log_path}",
             parent=self.root,
         )
-        self.quit_app()
+        # Não chama quit_app: se o UAC for cancelado, o app permanece.
+        # Se aceitar, o instalador fecha o processo com CLOSEAPPLICATIONS.
+        self._on_update_finished()
 
     def _on_update_error(self, message: str) -> None:
         messagebox.showerror("Falha na atualização", message, parent=self.root)
