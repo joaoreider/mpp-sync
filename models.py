@@ -29,8 +29,8 @@ class Base(DeclarativeBase):
 class Projeto(Base):
     """Representa um projeto importado do MS Project."""
 
-    __tablename__ = "mpp_sync_projetos"
-    __table_args__ = (UniqueConstraint("nome_projeto", name="uq_mpp_sync_projetos_nome_projeto"),)
+    __tablename__ = "projetos"
+    __table_args__ = (UniqueConstraint("nome_projeto", name="uq_projetos_nome_projeto"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     nome_projeto: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -55,18 +55,18 @@ class Projeto(Base):
 class Tarefa(Base):
     """Representa uma tarefa vinculada a um projeto."""
 
-    __tablename__ = "mpp_sync_tarefas"
+    __tablename__ = "tarefas"
     __table_args__ = (
         UniqueConstraint(
             "id_projeto",
             "id_tarefa_project",
-            name="uq_mpp_sync_tarefas_projeto_id_tarefa_project",
+            name="uq_tarefas_projeto_id_tarefa_project",
         ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     id_projeto: Mapped[int] = mapped_column(
-        ForeignKey("mpp_sync_projetos.id", ondelete="CASCADE"),
+        ForeignKey("projetos.id", ondelete="CASCADE"),
         nullable=False,
     )
     nome_tarefa: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -106,10 +106,10 @@ def get_session_factory(database_url: str):
 def _ensure_tarefa_columns(engine) -> None:
     """Adiciona colunas novas em bancos já existentes."""
     inspector = inspect(engine)
-    if "mpp_sync_tarefas" not in inspector.get_table_names():
+    if "tarefas" not in inspector.get_table_names():
         return
 
-    existing = {column["name"] for column in inspector.get_columns("mpp_sync_tarefas")}
+    existing = {column["name"] for column in inspector.get_columns("tarefas")}
     new_columns = {
         "inicio_do_plano_base": "DATE",
         "conclusao_do_plano_base": "DATE",
@@ -120,7 +120,7 @@ def _ensure_tarefa_columns(engine) -> None:
         for column_name, column_type in new_columns.items():
             if column_name not in existing:
                 connection.execute(
-                    text(f"ALTER TABLE mpp_sync_tarefas ADD {column_name} {column_type}")
+                    text(f"ALTER TABLE tarefas ADD {column_name} {column_type}")
                 )
 
 

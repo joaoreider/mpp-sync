@@ -113,4 +113,4 @@ Nesse modo, o app lê `.env` na raiz do projeto.
 
 ## Banco
 
-O banco já pode conter tabelas de outros sistemas. Na primeira execução, este pipeline cria **somente** as tabelas `mpp_sync_projetos` e `mpp_sync_tarefas` caso ainda não existam (prefixo `mpp_sync_` para não colidir com tabelas legadas como `projetos`/`tarefas`).
+Na primeira execução, este pipeline cria **somente** as tabelas `projetos` e `tarefas` caso ainda não existam.
