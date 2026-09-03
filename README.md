@@ -113,4 +113,15 @@ Nesse modo, o app lê `.env` na raiz do projeto.
 
 ## Banco
 
-Na primeira execução, este pipeline cria **somente** as tabelas `projetos` e `tarefas` caso ainda não existam.
+Na primeira execução, este pipeline cria as tabelas `projetos`, `tarefas` e
+`linhas_base_faseadas_tarefa` caso ainda não existam.
+
+A tabela `linhas_base_faseadas_tarefa` equivale ao dataset do Project Online
+`LinhaDeBaseDoConjuntoDeDadosFaseadosNoTempoDaTarefa`, com os campos:
+
+| Coluna SQL | Equivalente Power BI |
+|---|---|
+| `id_projeto` | IdDoProjeto |
+| `id_tarefa_project` | IdDaTarefa |
+| `hora_por_dia` | HoraPorDia |
+| `numero_linha_base` | NúmeroDeLinhaBase (0 = Baseline, 1..10 = Baseline1..10) |

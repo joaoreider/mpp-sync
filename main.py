@@ -13,9 +13,10 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from config import Settings, app_data_dir, load_settings
-from models import Projeto, Tarefa, get_session_factory, init_db
+from models import LinhaBaseFaseadaTarefa, Projeto, Tarefa, get_session_factory, init_db
 from project_parser import (
     PROJECT_FILE_EXTENSION,
+    LinhaBaseFaseadaTarefaDTO,
     ProjetoDTO,
     TarefaDTO,
     is_project_file,
@@ -117,8 +118,30 @@ def _apply_tarefa_fields(tarefa: Tarefa, dto: TarefaDTO) -> None:
     tarefa.trabalho = dto.trabalho
 
 
+def persist_linhas_base_faseadas(
+    session: Session,
+    projeto: Projeto,
+    linhas: tuple[LinhaBaseFaseadaTarefaDTO, ...],
+) -> int:
+    """Substitui as linhas de baseline faseadas do projeto pelos dados do .mpp."""
+    session.query(LinhaBaseFaseadaTarefa).filter(
+        LinhaBaseFaseadaTarefa.id_projeto == projeto.id
+    ).delete(synchronize_session=False)
+
+    for linha in linhas:
+        session.add(
+            LinhaBaseFaseadaTarefa(
+                id_projeto=projeto.id,
+                id_tarefa_project=linha.id_tarefa_project,
+                hora_por_dia=linha.hora_por_dia,
+                numero_linha_base=linha.numero_linha_base,
+            )
+        )
+    return len(linhas)
+
+
 def persist_projeto(session: Session, dto: ProjetoDTO) -> Projeto:
-    """Persiste projeto e todas as tarefas associadas."""
+    """Persiste projeto, tarefas e baselines faseadas associadas."""
     projeto = upsert_projeto(session, dto)
     existing_by_uid = {
         tarefa.id_tarefa_project: tarefa
@@ -148,6 +171,7 @@ def persist_projeto(session: Session, dto: ProjetoDTO) -> Projeto:
         else:
             _apply_tarefa_fields(tarefa, tarefa_dto)
 
+    persist_linhas_base_faseadas(session, projeto, dto.linhas_base_faseadas)
     return projeto
 
 
@@ -156,10 +180,11 @@ def process_project_file(session: Session, project_path: Path) -> None:
     parse_start = time.perf_counter()
     dto = parse_project_file(project_path)
     logger.info(
-        "Leitura de '%s' concluída em %d ms (%d tarefa(s)).",
+        "Leitura de '%s' concluída em %d ms (%d tarefa(s), %d linha(s) base faseada(s)).",
         project_path.name,
         _elapsed_ms(parse_start),
         len(dto.tarefas),
+        len(dto.linhas_base_faseadas),
     )
 
     persist_start = time.perf_counter()

@@ -50,6 +50,11 @@ class Projeto(Base):
         back_populates="projeto",
         cascade="all, delete-orphan",
     )
+    linhas_base_faseadas: Mapped[list[LinhaBaseFaseadaTarefa]] = relationship(
+        "LinhaBaseFaseadaTarefa",
+        back_populates="projeto",
+        cascade="all, delete-orphan",
+    )
 
 
 class Tarefa(Base):
@@ -81,6 +86,34 @@ class Tarefa(Base):
     id_tarefa_project: Mapped[int] = mapped_column(nullable=False)
 
     projeto: Mapped[Projeto] = relationship("Projeto", back_populates="tarefas")
+
+
+class LinhaBaseFaseadaTarefa(Base):
+    """Baseline faseada por dia/tarefa (Project Online: LinhaDeBaseDoConjunto...)."""
+
+    __tablename__ = "linhas_base_faseadas_tarefa"
+    __table_args__ = (
+        UniqueConstraint(
+            "id_projeto",
+            "id_tarefa_project",
+            "hora_por_dia",
+            "numero_linha_base",
+            name="uq_linhas_base_faseadas_tarefa_chave",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id_projeto: Mapped[int] = mapped_column(
+        ForeignKey("projetos.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    id_tarefa_project: Mapped[int] = mapped_column(nullable=False)
+    hora_por_dia: Mapped[date] = mapped_column(Date, nullable=False)
+    numero_linha_base: Mapped[int] = mapped_column(nullable=False)
+
+    projeto: Mapped[Projeto] = relationship(
+        "Projeto", back_populates="linhas_base_faseadas"
+    )
 
 
 def get_engine(database_url: str) -> Engine:
@@ -129,6 +162,10 @@ def init_db(database_url: str) -> None:
     engine = get_engine(database_url)
     Base.metadata.create_all(
         engine,
-        tables=[Projeto.__table__, Tarefa.__table__],
+        tables=[
+            Projeto.__table__,
+            Tarefa.__table__,
+            LinhaBaseFaseadaTarefa.__table__,
+        ],
     )
     _ensure_tarefa_columns(engine)
