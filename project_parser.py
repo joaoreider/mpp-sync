@@ -12,44 +12,59 @@ logger = logging.getLogger(__name__)
 
 PROJECT_FILE_EXTENSION = ".mpp"
 
+# Índices de baseline do MS Project: 0 = Baseline, 1..10 = Baseline1..Baseline10.
+_BASELINE_INDEXES = range(0, 11)
+
 
 @dataclass(frozen=True, slots=True)
 class TarefaDTO:
-    """DTO imutável para dados de tarefa extraídos do MS Project."""
+    """DTO imutável alinhado ao dataset Tarefas do Power BI."""
 
-    id_tarefa_project: int
+    nome_do_projeto: str
+    id_tarefa: int
     nome_tarefa: str
     data_inicio: date | None
-    data_fim: date | None
-    inicio_do_plano_base: date | None
-    conclusao_do_plano_base: date | None
-    percentual_concluido: float | None
-    duracao: float | None
-    custo: float | None
-    trabalho: float | None
-    outline_level: int | None
-    outline_number: str | None
+    data_conclusao: date | None
+    desvio_da_conclusao: float | None
+    duracao_da_tarefa: float | None
+    duracao_real_da_tarefa: float | None
+    ordem: int | None
+    spi_da_tarefa: float | None
+    id_obra: str | None
+    tarefa_e_resumo: bool | None
+    tarefa_esta_ativa: bool | None
+    wbs_da_tarefa: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ConjuntoDadosFaseadosTarefaDTO:
+    """DTO do conjunto faseado no tempo (custo / custo real por dia)."""
+
+    nome_do_projeto: str
+    id_tarefa: int
+    hora_por_dia: date
+    custo_tarefa: float | None
+    custo_real_da_tarefa: float | None
 
 
 @dataclass(frozen=True, slots=True)
 class LinhaBaseFaseadaTarefaDTO:
-    """Linha de baseline faseada no tempo (equivalente ao dataset do Project Online)."""
+    """DTO da linha de base faseada no tempo."""
 
-    id_tarefa_project: int
+    nome_do_projeto: str
+    id_tarefa: int
     hora_por_dia: date
     numero_linha_base: int
+    custo_de_linha_base: float | None
 
 
 @dataclass(frozen=True, slots=True)
-class ProjetoDTO:
-    """DTO imutável para dados de projeto extraídos do MS Project."""
+class ArquivoProjetoDTO:
+    """Resultado completo da leitura de um arquivo .mpp."""
 
-    nome_projeto: str
-    gerente: str | None
-    data_inicio: date | None
-    data_fim: date | None
-    percentual_concluido: float | None
+    nome_do_projeto: str
     tarefas: tuple[TarefaDTO, ...]
+    conjunto_dados_faseados: tuple[ConjuntoDadosFaseadosTarefaDTO, ...] = ()
     linhas_base_faseadas: tuple[LinhaBaseFaseadaTarefaDTO, ...] = ()
 
 
@@ -58,7 +73,7 @@ def is_project_file(path: Path) -> bool:
     return path.suffix.lower() == PROJECT_FILE_EXTENSION
 
 
-def parse_project_file(path: Path) -> ProjetoDTO:
+def parse_project_file(path: Path) -> ArquivoProjetoDTO:
     """Parseia um arquivo MS Project nativo."""
     if not is_project_file(path):
         raise ValueError(f"Formato não suportado: {path.suffix}. Use arquivos .mpp.")
@@ -129,6 +144,15 @@ def _java_int(value) -> int | None:
     return int(value)
 
 
+def _java_bool(value) -> bool | None:
+    """Converte Boolean Java em bool Python."""
+    if value is None:
+        return None
+    if hasattr(value, "booleanValue"):
+        return bool(value.booleanValue())
+    return bool(value)
+
+
 def _java_date(value) -> date | None:
     """Converte datas Java (LocalDateTime, LocalDate, Date) em date Python."""
     if value is None:
@@ -164,22 +188,6 @@ def _task_baseline_finish_at(task, baseline_number: int):
     return task.getBaselineFinish(baseline_number)
 
 
-def _task_baseline_start(task) -> date | None:
-    """Lê início da linha de base (plano base) da tarefa."""
-    baseline_start = _java_date(_task_baseline_start_at(task, 0))
-    if baseline_start is not None:
-        return baseline_start
-    return _java_date(_task_baseline_start_at(task, 1))
-
-
-def _task_baseline_finish(task) -> date | None:
-    """Lê conclusão da linha de base (plano base) da tarefa."""
-    baseline_finish = _java_date(_task_baseline_finish_at(task, 0))
-    if baseline_finish is not None:
-        return baseline_finish
-    return _java_date(_task_baseline_finish_at(task, 1))
-
-
 def _java_duration_in_unit(value, time_unit) -> float | None:
     """Converte Duration do MPXJ para a unidade informada."""
     if value is None:
@@ -196,7 +204,29 @@ def _java_duration_in_unit(value, time_unit) -> float | None:
         return None
 
 
-def _extract_tasks_from_mpp(project) -> tuple[TarefaDTO, ...]:
+def _task_spi(task) -> float | None:
+    """Lê SPI da tarefa quando o arquivo trouxer EVM; senão None."""
+    getter = getattr(task, "getSPI", None)
+    if getter is None:
+        return None
+    try:
+        return _java_number(getter())
+    except Exception:
+        return None
+
+
+def _task_active(task) -> bool | None:
+    """Lê flag Active quando disponível."""
+    getter = getattr(task, "getActive", None)
+    if getter is None:
+        return None
+    try:
+        return _java_bool(getter())
+    except Exception:
+        return None
+
+
+def _extract_tasks_from_mpp(project, nome_do_projeto: str) -> tuple[TarefaDTO, ...]:
     """Extrai tarefas de um ProjectFile MPXJ."""
     from org.mpxj import TimeUnit
 
@@ -207,28 +237,33 @@ def _extract_tasks_from_mpp(project) -> tuple[TarefaDTO, ...]:
             continue
 
         nome_tarefa = _java_string(task.getName()) or f"Tarefa {uid}"
+        wbs = _java_string(task.getWBS()) or _java_string(task.getOutlineNumber())
         tarefas.append(
             TarefaDTO(
-                id_tarefa_project=uid,
+                nome_do_projeto=nome_do_projeto,
+                id_tarefa=uid,
                 nome_tarefa=nome_tarefa,
                 data_inicio=_java_date(task.getStart()),
-                data_fim=_java_date(task.getFinish()),
-                inicio_do_plano_base=_task_baseline_start(task),
-                conclusao_do_plano_base=_task_baseline_finish(task),
-                percentual_concluido=_java_number(task.getPercentageComplete()),
-                duracao=_java_duration_in_unit(task.getDuration(), TimeUnit.DAYS),
-                custo=_java_number(task.getCost()),
-                trabalho=_java_duration_in_unit(task.getWork(), TimeUnit.HOURS),
-                outline_level=_java_int(task.getOutlineLevel()),
-                outline_number=_java_string(task.getOutlineNumber()),
+                data_conclusao=_java_date(task.getFinish()),
+                desvio_da_conclusao=_java_duration_in_unit(
+                    task.getFinishVariance(), TimeUnit.DAYS
+                ),
+                duracao_da_tarefa=_java_duration_in_unit(
+                    task.getDuration(), TimeUnit.DAYS
+                ),
+                duracao_real_da_tarefa=_java_duration_in_unit(
+                    task.getActualDuration(), TimeUnit.DAYS
+                ),
+                ordem=_java_int(task.getID()),
+                spi_da_tarefa=_task_spi(task),
+                id_obra=None,
+                tarefa_e_resumo=_java_bool(task.getSummary()),
+                tarefa_esta_ativa=_task_active(task),
+                wbs_da_tarefa=wbs,
             )
         )
 
     return tuple(tarefas)
-
-
-# Índices de baseline do MS Project: 0 = Baseline, 1..10 = Baseline1..Baseline10.
-_BASELINE_INDEXES = range(0, 11)
 
 
 def _to_start_of_day(value):
@@ -256,9 +291,98 @@ def _duration_amount(value) -> float:
         return 0.0
 
 
-def _extract_linhas_base_faseadas(project) -> tuple[LinhaBaseFaseadaTarefaDTO, ...]:
+def _numeric_amount(value) -> float:
+    """Extrai valor numérico de Number/Duration (0 se vazio)."""
+    if value is None:
+        return 0.0
+    try:
+        if hasattr(value, "getDuration"):
+            amount = _java_number(value.getDuration())
+            return amount or 0.0
+        amount = _java_number(value)
+        return amount or 0.0
+    except Exception:
+        return 0.0
+
+
+def _create_day_ranges(helper, start, finish):
+    """Cria ranges diários half-open [start, finish+1day)."""
+    from org.mpxj import TimescaleUnits
+
+    if start is None or finish is None:
+        return None
+    end_exclusive = finish.toLocalDate().plusDays(1).atStartOfDay()
+    if not end_exclusive.isAfter(start):
+        end_exclusive = start.toLocalDate().plusDays(1).atStartOfDay()
+    ranges = helper.createTimescale(start, end_exclusive, TimescaleUnits.DAYS)
+    if ranges is None or ranges.isEmpty():
+        return None
+    return ranges
+
+
+def _extract_conjunto_dados_faseados(
+    project, nome_do_projeto: str
+) -> tuple[ConjuntoDadosFaseadosTarefaDTO, ...]:
+    """Extrai ConjuntoDeDadosFaseadosNoTempoDaTarefa (custo e custo real)."""
+    from org.mpxj.common import TimescaleHelper
+
+    helper = TimescaleHelper()
+    rows: list[ConjuntoDadosFaseadosTarefaDTO] = []
+    seen: set[tuple[int, date]] = set()
+
+    for task in project.getTasks():
+        uid = _java_int(task.getUniqueID())
+        if uid is None:
+            continue
+
+        start = _to_start_of_day(task.getStart())
+        finish = _to_start_of_day(task.getFinish())
+        ranges = _create_day_ranges(helper, start, finish)
+        if ranges is None:
+            continue
+
+        cost_list = task.getTimephasedCost(ranges)
+        actual_cost_list = task.getTimephasedActualCost(ranges)
+
+        for index in range(ranges.size()):
+            custo = (
+                _numeric_amount(cost_list.get(index))
+                if cost_list is not None and index < cost_list.size()
+                else 0.0
+            )
+            custo_real = (
+                _numeric_amount(actual_cost_list.get(index))
+                if actual_cost_list is not None and index < actual_cost_list.size()
+                else 0.0
+            )
+            if custo <= 0 and custo_real <= 0:
+                continue
+
+            day = _java_date(ranges.get(index).getStart())
+            if day is None:
+                continue
+            key = (uid, day)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(
+                ConjuntoDadosFaseadosTarefaDTO(
+                    nome_do_projeto=nome_do_projeto,
+                    id_tarefa=uid,
+                    hora_por_dia=day,
+                    custo_tarefa=custo if custo > 0 else 0.0,
+                    custo_real_da_tarefa=custo_real if custo_real > 0 else 0.0,
+                )
+            )
+
+    return tuple(rows)
+
+
+def _extract_linhas_base_faseadas(
+    project, nome_do_projeto: str
+) -> tuple[LinhaBaseFaseadaTarefaDTO, ...]:
     """Extrai LinhaDeBaseDoConjuntoDeDadosFaseadosNoTempoDaTarefa via MPXJ."""
-    from org.mpxj import TimeUnit, TimescaleUnits
+    from org.mpxj import TimeUnit
     from org.mpxj.common import TimescaleHelper
 
     helper = TimescaleHelper()
@@ -273,16 +397,8 @@ def _extract_linhas_base_faseadas(project) -> tuple[LinhaBaseFaseadaTarefaDTO, .
         for baseline_number in _BASELINE_INDEXES:
             start = _to_start_of_day(_task_baseline_start_at(task, baseline_number))
             finish = _to_start_of_day(_task_baseline_finish_at(task, baseline_number))
-            if start is None or finish is None:
-                continue
-
-            # Timescale half-open: fim exclusivo = dia seguinte ao finish.
-            end_exclusive = finish.toLocalDate().plusDays(1).atStartOfDay()
-            if not end_exclusive.isAfter(start):
-                end_exclusive = start.toLocalDate().plusDays(1).atStartOfDay()
-
-            ranges = helper.createTimescale(start, end_exclusive, TimescaleUnits.DAYS)
-            if ranges is None or ranges.isEmpty():
+            ranges = _create_day_ranges(helper, start, finish)
+            if ranges is None:
                 continue
 
             work_list = task.getTimephasedBaselineWork(
@@ -299,7 +415,7 @@ def _extract_linhas_base_faseadas(project) -> tuple[LinhaBaseFaseadaTarefaDTO, .
                 )
                 cost_amount = 0.0
                 if cost_list is not None and index < cost_list.size():
-                    cost_amount = _java_number(cost_list.get(index)) or 0.0
+                    cost_amount = _numeric_amount(cost_list.get(index))
                 if work_amount <= 0 and cost_amount <= 0:
                     continue
 
@@ -312,9 +428,11 @@ def _extract_linhas_base_faseadas(project) -> tuple[LinhaBaseFaseadaTarefaDTO, .
                 seen.add(key)
                 rows.append(
                     LinhaBaseFaseadaTarefaDTO(
-                        id_tarefa_project=uid,
+                        nome_do_projeto=nome_do_projeto,
+                        id_tarefa=uid,
                         hora_por_dia=day,
                         numero_linha_base=baseline_number,
+                        custo_de_linha_base=cost_amount,
                     )
                 )
                 emitted_for_baseline = True
@@ -331,16 +449,18 @@ def _extract_linhas_base_faseadas(project) -> tuple[LinhaBaseFaseadaTarefaDTO, .
                     seen.add(key)
                     rows.append(
                         LinhaBaseFaseadaTarefaDTO(
-                            id_tarefa_project=uid,
+                            nome_do_projeto=nome_do_projeto,
+                            id_tarefa=uid,
                             hora_por_dia=day,
                             numero_linha_base=baseline_number,
+                            custo_de_linha_base=0.0,
                         )
                     )
 
     return tuple(rows)
 
 
-def parse_ms_project_mpp(mpp_path: Path) -> ProjetoDTO:
+def parse_ms_project_mpp(mpp_path: Path) -> ArquivoProjetoDTO:
     """Parseia um arquivo .mpp nativo do MS Project via MPXJ."""
     _ensure_jvm()
 
@@ -349,19 +469,17 @@ def parse_ms_project_mpp(mpp_path: Path) -> ProjetoDTO:
     project = UniversalProjectReader().read(str(mpp_path))
     properties = project.getProjectProperties()
 
-    nome_projeto = (
+    nome_do_projeto = (
         _java_string(properties.getProjectTitle())
         or _java_string(properties.getName())
         or mpp_path.stem
     )
-    percentual = _java_number(properties.getPercentageComplete())
 
-    return ProjetoDTO(
-        nome_projeto=nome_projeto,
-        gerente=_java_string(properties.getManager()),
-        data_inicio=_java_date(properties.getStartDate()),
-        data_fim=_java_date(properties.getFinishDate()),
-        percentual_concluido=percentual,
-        tarefas=_extract_tasks_from_mpp(project),
-        linhas_base_faseadas=_extract_linhas_base_faseadas(project),
+    return ArquivoProjetoDTO(
+        nome_do_projeto=nome_do_projeto,
+        tarefas=_extract_tasks_from_mpp(project, nome_do_projeto),
+        conjunto_dados_faseados=_extract_conjunto_dados_faseados(
+            project, nome_do_projeto
+        ),
+        linhas_base_faseadas=_extract_linhas_base_faseadas(project, nome_do_projeto),
     )

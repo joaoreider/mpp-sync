@@ -113,15 +113,45 @@ Nesse modo, o app lê `.env` na raiz do projeto.
 
 ## Banco
 
-Na primeira execução, este pipeline cria as tabelas `projetos`, `tarefas` e
-`linhas_base_faseadas_tarefa` caso ainda não existam.
+Na primeira execução (ou ao detectar schema legado), o pipeline cria/recria
+três tabelas alinhadas aos datasets do Project Online / Power BI. Cada
+importação de `.mpp` apaga e reinsere as linhas daquele `nome_do_projeto`.
 
-A tabela `linhas_base_faseadas_tarefa` equivale ao dataset do Project Online
-`LinhaDeBaseDoConjuntoDeDadosFaseadosNoTempoDaTarefa`, com os campos:
+### `tarefas` (dataset Tarefas)
 
 | Coluna SQL | Equivalente Power BI |
 |---|---|
-| `id_projeto` | IdDoProjeto |
-| `id_tarefa_project` | IdDaTarefa |
+| `nome_do_projeto` | NomeDoProjeto |
+| `id_tarefa` | IdDaTarefa |
+| `nome_tarefa` | NomeTarefa |
+| `data_inicio` | DataDeInício |
+| `data_conclusao` | DataDeConclusão |
+| `desvio_da_conclusao` | DesvioDaConclusão |
+| `duracao_da_tarefa` | DuraçãoDaTarefa |
+| `duracao_real_da_tarefa` | DuraçãoRealDaTarefa |
+| `ordem` | Ordem |
+| `spi_da_tarefa` | SPIDaTarefa |
+| `id_obra` | IdObra (sempre NULL por enquanto) |
+| `tarefa_e_resumo` | TarefaÉResumo |
+| `tarefa_esta_ativa` | TarefaEstáAtiva |
+| `wbs_da_tarefa` | WBSDaTarefa |
+
+### `conjunto_dados_faseados_tarefa` (ConjuntoDeDadosFaseadosNoTempoDaTarefa)
+
+| Coluna SQL | Equivalente Power BI |
+|---|---|
+| `nome_do_projeto` | (escopo multi-arquivo; não existe no OData) |
+| `id_tarefa` | IdDaTarefa |
+| `hora_por_dia` | HoraPorDia |
+| `custo_tarefa` | CustoTarefa |
+| `custo_real_da_tarefa` | CustoRealDaTarefa |
+
+### `linhas_base_faseadas_tarefa` (LinhaDeBaseDoConjuntoDeDadosFaseadosNoTempoDaTarefa)
+
+| Coluna SQL | Equivalente Power BI |
+|---|---|
+| `nome_do_projeto` | (escopo multi-arquivo; não existe no OData) |
+| `id_tarefa` | IdDaTarefa |
 | `hora_por_dia` | HoraPorDia |
 | `numero_linha_base` | NúmeroDeLinhaBase (0 = Baseline, 1..10 = Baseline1..10) |
+| `custo_de_linha_base` | CustoDeLinhaDeBase |

@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -13,12 +12,16 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from config import Settings, app_data_dir, load_settings
-from models import LinhaBaseFaseadaTarefa, Projeto, Tarefa, get_session_factory, init_db
+from models import (
+    ConjuntoDadosFaseadosTarefa,
+    LinhaBaseFaseadaTarefa,
+    Tarefa,
+    get_session_factory,
+    init_db,
+)
 from project_parser import (
     PROJECT_FILE_EXTENSION,
-    LinhaBaseFaseadaTarefaDTO,
-    ProjetoDTO,
-    TarefaDTO,
+    ArquivoProjetoDTO,
     is_project_file,
     parse_project_file,
 )
@@ -70,109 +73,64 @@ def collect_project_files(settings: Settings) -> list[Path]:
     return project_files
 
 
-def _apply_projeto_fields(projeto: Projeto, dto: ProjetoDTO) -> None:
-    """Atualiza campos mutáveis de um projeto existente."""
-    projeto.gerente = dto.gerente
-    projeto.data_inicio = dto.data_inicio
-    projeto.data_fim = dto.data_fim
-    projeto.percentual_concluido = dto.percentual_concluido
-    projeto.atualizado_em = datetime.now(timezone.utc)
-
-
-def upsert_projeto(session: Session, dto: ProjetoDTO) -> Projeto:
-    """Insere ou atualiza projeto usando nome_projeto como chave natural."""
-    projeto = (
-        session.query(Projeto)
-        .filter(Projeto.nome_projeto == dto.nome_projeto)
-        .one_or_none()
-    )
-
-    if projeto is None:
-        projeto = Projeto(
-            nome_projeto=dto.nome_projeto,
-            gerente=dto.gerente,
-            data_inicio=dto.data_inicio,
-            data_fim=dto.data_fim,
-            percentual_concluido=dto.percentual_concluido,
-            atualizado_em=datetime.now(timezone.utc),
-        )
-        session.add(projeto)
-        session.flush()
-        return projeto
-
-    _apply_projeto_fields(projeto, dto)
-    session.flush()
-    return projeto
-
-
-def _apply_tarefa_fields(tarefa: Tarefa, dto: TarefaDTO) -> None:
-    """Atualiza campos mutáveis de uma tarefa existente."""
-    tarefa.nome_tarefa = dto.nome_tarefa
-    tarefa.data_inicio = dto.data_inicio
-    tarefa.data_fim = dto.data_fim
-    tarefa.inicio_do_plano_base = dto.inicio_do_plano_base
-    tarefa.conclusao_do_plano_base = dto.conclusao_do_plano_base
-    tarefa.percentual_concluido = dto.percentual_concluido
-    tarefa.duracao = dto.duracao
-    tarefa.custo = dto.custo
-    tarefa.trabalho = dto.trabalho
-
-
-def persist_linhas_base_faseadas(
-    session: Session,
-    projeto: Projeto,
-    linhas: tuple[LinhaBaseFaseadaTarefaDTO, ...],
-) -> int:
-    """Substitui as linhas de baseline faseadas do projeto pelos dados do .mpp."""
+def _delete_by_nome_projeto(session: Session, nome_do_projeto: str) -> None:
+    """Remove dados das 3 tabelas para o projeto informado."""
     session.query(LinhaBaseFaseadaTarefa).filter(
-        LinhaBaseFaseadaTarefa.id_projeto == projeto.id
+        LinhaBaseFaseadaTarefa.nome_do_projeto == nome_do_projeto
+    ).delete(synchronize_session=False)
+    session.query(ConjuntoDadosFaseadosTarefa).filter(
+        ConjuntoDadosFaseadosTarefa.nome_do_projeto == nome_do_projeto
+    ).delete(synchronize_session=False)
+    session.query(Tarefa).filter(
+        Tarefa.nome_do_projeto == nome_do_projeto
     ).delete(synchronize_session=False)
 
-    for linha in linhas:
-        session.add(
-            LinhaBaseFaseadaTarefa(
-                id_projeto=projeto.id,
-                id_tarefa_project=linha.id_tarefa_project,
-                hora_por_dia=linha.hora_por_dia,
-                numero_linha_base=linha.numero_linha_base,
-            )
-        )
-    return len(linhas)
 
-
-def persist_projeto(session: Session, dto: ProjetoDTO) -> Projeto:
-    """Persiste projeto, tarefas e baselines faseadas associadas."""
-    projeto = upsert_projeto(session, dto)
-    existing_by_uid = {
-        tarefa.id_tarefa_project: tarefa
-        for tarefa in session.query(Tarefa)
-        .filter(Tarefa.id_projeto == projeto.id)
-        .all()
-    }
+def persist_arquivo(session: Session, dto: ArquivoProjetoDTO) -> None:
+    """Substitui nas 3 tabelas todos os dados daquele nome_do_projeto."""
+    _delete_by_nome_projeto(session, dto.nome_do_projeto)
 
     for tarefa_dto in dto.tarefas:
-        tarefa = existing_by_uid.get(tarefa_dto.id_tarefa_project)
-        if tarefa is None:
-            session.add(
-                Tarefa(
-                    id_projeto=projeto.id,
-                    nome_tarefa=tarefa_dto.nome_tarefa,
-                    data_inicio=tarefa_dto.data_inicio,
-                    data_fim=tarefa_dto.data_fim,
-                    inicio_do_plano_base=tarefa_dto.inicio_do_plano_base,
-                    conclusao_do_plano_base=tarefa_dto.conclusao_do_plano_base,
-                    percentual_concluido=tarefa_dto.percentual_concluido,
-                    duracao=tarefa_dto.duracao,
-                    custo=tarefa_dto.custo,
-                    trabalho=tarefa_dto.trabalho,
-                    id_tarefa_project=tarefa_dto.id_tarefa_project,
-                )
+        session.add(
+            Tarefa(
+                nome_do_projeto=tarefa_dto.nome_do_projeto,
+                id_tarefa=tarefa_dto.id_tarefa,
+                nome_tarefa=tarefa_dto.nome_tarefa,
+                data_inicio=tarefa_dto.data_inicio,
+                data_conclusao=tarefa_dto.data_conclusao,
+                desvio_da_conclusao=tarefa_dto.desvio_da_conclusao,
+                duracao_da_tarefa=tarefa_dto.duracao_da_tarefa,
+                duracao_real_da_tarefa=tarefa_dto.duracao_real_da_tarefa,
+                ordem=tarefa_dto.ordem,
+                spi_da_tarefa=tarefa_dto.spi_da_tarefa,
+                id_obra=tarefa_dto.id_obra,
+                tarefa_e_resumo=tarefa_dto.tarefa_e_resumo,
+                tarefa_esta_ativa=tarefa_dto.tarefa_esta_ativa,
+                wbs_da_tarefa=tarefa_dto.wbs_da_tarefa,
             )
-        else:
-            _apply_tarefa_fields(tarefa, tarefa_dto)
+        )
 
-    persist_linhas_base_faseadas(session, projeto, dto.linhas_base_faseadas)
-    return projeto
+    for faseado in dto.conjunto_dados_faseados:
+        session.add(
+            ConjuntoDadosFaseadosTarefa(
+                nome_do_projeto=faseado.nome_do_projeto,
+                id_tarefa=faseado.id_tarefa,
+                hora_por_dia=faseado.hora_por_dia,
+                custo_tarefa=faseado.custo_tarefa,
+                custo_real_da_tarefa=faseado.custo_real_da_tarefa,
+            )
+        )
+
+    for linha in dto.linhas_base_faseadas:
+        session.add(
+            LinhaBaseFaseadaTarefa(
+                nome_do_projeto=linha.nome_do_projeto,
+                id_tarefa=linha.id_tarefa,
+                hora_por_dia=linha.hora_por_dia,
+                numero_linha_base=linha.numero_linha_base,
+                custo_de_linha_base=linha.custo_de_linha_base,
+            )
+        )
 
 
 def process_project_file(session: Session, project_path: Path) -> None:
@@ -180,19 +138,21 @@ def process_project_file(session: Session, project_path: Path) -> None:
     parse_start = time.perf_counter()
     dto = parse_project_file(project_path)
     logger.info(
-        "Leitura de '%s' concluída em %d ms (%d tarefa(s), %d linha(s) base faseada(s)).",
+        "Leitura de '%s' concluída em %d ms "
+        "(%d tarefa(s), %d faseado(s), %d linha(s) base).",
         project_path.name,
         _elapsed_ms(parse_start),
         len(dto.tarefas),
+        len(dto.conjunto_dados_faseados),
         len(dto.linhas_base_faseadas),
     )
 
     persist_start = time.perf_counter()
-    persist_projeto(session, dto)
+    persist_arquivo(session, dto)
     session.commit()
     logger.info(
         "Projeto '%s' persistido em %d ms.",
-        dto.nome_projeto,
+        dto.nome_do_projeto,
         _elapsed_ms(persist_start),
     )
 
