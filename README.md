@@ -146,6 +146,8 @@ importação de `.mpp` apaga e reinsere as linhas daquele `nome_do_projeto`.
 | `custo_tarefa` | CustoTarefa |
 | `custo_real_da_tarefa` | CustoRealDaTarefa |
 
+Os valores diários vêm do timephased nativo do MS Project (`Cost` / `ActualCost`, mais `BudgetCost` quando existir). Se o arquivo só tiver o total da tarefa (custo fixo sem trabalho de recurso, caso típico de obra), o pipeline rateia esse total pelos **dias úteis** do calendário da tarefa, respeitando o acúmulo (`START`, `END` ou `PRORATED`). Dias com custo e custo real iguais a zero não são gravados.
+
 ### `linhas_base_faseadas_tarefa` (LinhaDeBaseDoConjuntoDeDadosFaseadosNoTempoDaTarefa)
 
 | Coluna SQL | Equivalente Power BI |
@@ -155,3 +157,5 @@ importação de `.mpp` apaga e reinsere as linhas daquele `nome_do_projeto`.
 | `hora_por_dia` | HoraPorDia |
 | `numero_linha_base` | NúmeroDeLinhaBase (0 = Baseline, 1..10 = Baseline1..10) |
 | `custo_de_linha_base` | CustoDeLinhaDeBase |
+
+A linha de base faseada usa `getTimephasedBaselineCost` quando o MPP traz a distribuição. Se só existir o total (`BaselineCost` / `BaselineFixedCost`), o valor é rateado pelos dias úteis entre `BaselineStart` e `BaselineFinish`. Baseline sem custo não gera linhas (não grava zeros).

@@ -14,6 +14,7 @@ PROJECT_FILE_EXTENSION = ".mpp"
 
 # Índices de baseline do MS Project: 0 = Baseline, 1..10 = Baseline1..Baseline10.
 _BASELINE_INDEXES = range(0, 11)
+_COST_EPS = 1e-9
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +189,32 @@ def _task_baseline_finish_at(task, baseline_number: int):
     return task.getBaselineFinish(baseline_number)
 
 
+def _task_baseline_cost_at(task, baseline_number: int) -> float:
+    """Custo total da linha de base N, com fallback para custo fixo da baseline."""
+    if baseline_number == 0:
+        cost = _numeric_amount(task.getBaselineCost())
+        if cost > _COST_EPS:
+            return cost
+        getter = getattr(task, "getBaselineFixedCost", None)
+        return _numeric_amount(getter()) if getter is not None else 0.0
+
+    cost = _numeric_amount(task.getBaselineCost(baseline_number))
+    if cost > _COST_EPS:
+        return cost
+    getter = getattr(task, "getBaselineFixedCost", None)
+    return _numeric_amount(getter(baseline_number)) if getter is not None else 0.0
+
+
+def _task_baseline_accrual_at(task, baseline_number: int):
+    """Tipo de acúmulo do custo fixo da linha de base N."""
+    getter = getattr(task, "getBaselineFixedCostAccrual", None)
+    if getter is None:
+        return None
+    if baseline_number == 0:
+        return getter()
+    return getter(baseline_number)
+
+
 def _java_duration_in_unit(value, time_unit) -> float | None:
     """Converte Duration do MPXJ para a unidade informada."""
     if value is None:
@@ -277,20 +304,6 @@ def _to_start_of_day(value):
     return value
 
 
-def _duration_amount(value) -> float:
-    """Extrai o valor numérico de um Duration MPXJ (0 se vazio)."""
-    if value is None:
-        return 0.0
-    try:
-        if hasattr(value, "getDuration"):
-            amount = _java_number(value.getDuration())
-            return amount or 0.0
-        amount = _java_number(value)
-        return amount or 0.0
-    except Exception:
-        return 0.0
-
-
 def _numeric_amount(value) -> float:
     """Extrai valor numérico de Number/Duration (0 se vazio)."""
     if value is None:
@@ -320,6 +333,138 @@ def _create_day_ranges(helper, start, finish):
     return ranges
 
 
+def _list_amount_at(values, index: int) -> float:
+    """Lê um Number/Duration de uma lista Java no índice, ou 0."""
+    if values is None or index >= values.size():
+        return 0.0
+    return _numeric_amount(values.get(index))
+
+
+def _accrual_kind(accrual) -> str:
+    """Normaliza AccrueType do MPXJ para START, END ou PRORATED."""
+    from org.mpxj import AccrueType
+
+    if accrual is None:
+        return "PRORATED"
+    if accrual == AccrueType.START:
+        return "START"
+    if accrual == AccrueType.END:
+        return "END"
+    return "PRORATED"
+
+
+def _is_working_day(calendar, java_datetime) -> bool:
+    """Indica se a data cai em dia útil no calendário da tarefa."""
+    if calendar is None or java_datetime is None:
+        return True
+    local_date = (
+        java_datetime.toLocalDate()
+        if hasattr(java_datetime, "toLocalDate")
+        else java_datetime
+    )
+    try:
+        return bool(calendar.isWorkingDate(local_date))
+    except Exception:
+        logger.debug("Falha ao consultar calendário em %s", java_datetime)
+        return True
+
+
+def _working_indices(calendar, ranges) -> list[int]:
+    """Índices de ranges diários que caem em dia útil."""
+    return [
+        index
+        for index in range(ranges.size())
+        if _is_working_day(calendar, ranges.get(index).getStart())
+    ]
+
+
+def _spread_amount(
+    amount: float, working_indices: list[int], accrual, size: int
+) -> list[float]:
+    """Distribui um total pelos dias úteis conforme o acúmulo do Project."""
+    result = [0.0] * size
+    if amount <= _COST_EPS or not working_indices:
+        return result
+
+    kind = _accrual_kind(accrual)
+    if kind == "START":
+        result[working_indices[0]] = amount
+        return result
+    if kind == "END":
+        result[working_indices[-1]] = amount
+        return result
+
+    day_count = len(working_indices)
+    share = amount / day_count
+    allocated = 0.0
+    for position, index in enumerate(working_indices):
+        if position == day_count - 1:
+            result[index] = amount - allocated
+        else:
+            result[index] = share
+            allocated += share
+    return result
+
+
+def _task_scalar_cost(task) -> float:
+    """Custo planejado da tarefa: Cost, senão FixedCost, senão soma das atribuições."""
+    cost = _numeric_amount(task.getCost())
+    if cost > _COST_EPS:
+        return cost
+    getter = getattr(task, "getFixedCost", None)
+    if getter is not None:
+        fixed = _numeric_amount(getter())
+        if fixed > _COST_EPS:
+            return fixed
+    assignments = task.getResourceAssignments()
+    if assignments is None:
+        return 0.0
+    total = 0.0
+    for assignment in assignments:
+        assignment_getter = getattr(assignment, "getCost", None)
+        if assignment_getter is not None:
+            total += _numeric_amount(assignment_getter())
+    return total
+
+
+def _task_scalar_actual_cost(task) -> float:
+    """Custo real da tarefa."""
+    getter = getattr(task, "getActualCost", None)
+    return _numeric_amount(getter()) if getter is not None else 0.0
+
+
+def _day_in_interval(day: date | None, start, finish) -> bool:
+    """True se o dia está entre start e finish (inclusive)."""
+    if day is None:
+        return False
+    start_day = _java_date(start)
+    finish_day = _java_date(finish)
+    if start_day is not None and day < start_day:
+        return False
+    if finish_day is not None and day > finish_day:
+        return False
+    return True
+
+
+def _timephased_or_spread(
+    native_values,
+    ranges,
+    scalar: float,
+    calendar,
+    accrual,
+    working_indices: list[int] | None = None,
+) -> tuple[list[float], bool]:
+    """Usa o timephased nativo; se a soma for ~0 e houver total, rateia o total."""
+    size = ranges.size()
+    native = [_list_amount_at(native_values, index) for index in range(size)]
+    if sum(native) > _COST_EPS or scalar <= _COST_EPS:
+        return native, False
+    indices = working_indices if working_indices is not None else _working_indices(
+        calendar, ranges
+    )
+    return _spread_amount(scalar, indices, accrual, size), True
+
+
 def _extract_conjunto_dados_faseados(
     project, nome_do_projeto: str
 ) -> tuple[ConjuntoDadosFaseadosTarefaDTO, ...]:
@@ -329,6 +474,8 @@ def _extract_conjunto_dados_faseados(
     helper = TimescaleHelper()
     rows: list[ConjuntoDadosFaseadosTarefaDTO] = []
     seen: set[tuple[int, date]] = set()
+    tasks_with_scalar = 0
+    fallback_tasks = 0
 
     for task in project.getTasks():
         uid = _java_int(task.getUniqueID())
@@ -341,21 +488,55 @@ def _extract_conjunto_dados_faseados(
         if ranges is None:
             continue
 
-        cost_list = task.getTimephasedCost(ranges)
-        actual_cost_list = task.getTimephasedActualCost(ranges)
+        scalar_cost = _task_scalar_cost(task)
+        scalar_actual = _task_scalar_actual_cost(task)
+        if scalar_cost > _COST_EPS or scalar_actual > _COST_EPS:
+            tasks_with_scalar += 1
+
+        calendar = task.getEffectiveCalendar()
+        accrual = (
+            task.getFixedCostAccrual() if hasattr(task, "getFixedCostAccrual") else None
+        )
+        working_indices = _working_indices(calendar, ranges)
+
+        native_cost = task.getTimephasedCost(ranges)
+        native_actual = task.getTimephasedActualCost(ranges)
+        native_budget = None
+        budget_getter = getattr(task, "getTimephasedBudgetCost", None)
+        if budget_getter is not None:
+            native_budget = budget_getter(ranges)
+
+        costs, used_cost_fallback = _timephased_or_spread(
+            native_cost, ranges, scalar_cost, calendar, accrual, working_indices
+        )
+        if native_budget is not None:
+            for index in range(ranges.size()):
+                costs[index] += _list_amount_at(native_budget, index)
+
+        actual_start = task.getActualStart() or start
+        actual_finish = task.getActualFinish() or finish
+        actual_indices = [
+            index
+            for index in working_indices
+            if _day_in_interval(
+                _java_date(ranges.get(index).getStart()), actual_start, actual_finish
+            )
+        ]
+        actuals, used_actual_fallback = _timephased_or_spread(
+            native_actual,
+            ranges,
+            scalar_actual,
+            calendar,
+            accrual,
+            actual_indices,
+        )
+        if used_cost_fallback or used_actual_fallback:
+            fallback_tasks += 1
 
         for index in range(ranges.size()):
-            custo = (
-                _numeric_amount(cost_list.get(index))
-                if cost_list is not None and index < cost_list.size()
-                else 0.0
-            )
-            custo_real = (
-                _numeric_amount(actual_cost_list.get(index))
-                if actual_cost_list is not None and index < actual_cost_list.size()
-                else 0.0
-            )
-            if custo <= 0 and custo_real <= 0:
+            custo = costs[index]
+            custo_real = actuals[index]
+            if custo <= _COST_EPS and custo_real <= _COST_EPS:
                 continue
 
             day = _java_date(ranges.get(index).getStart())
@@ -375,6 +556,14 @@ def _extract_conjunto_dados_faseados(
                 )
             )
 
+    logger.info(
+        "Faseados '%s': %d linha(s); %d tarefa(s) com custo total; "
+        "%d com rateio por dia útil.",
+        nome_do_projeto,
+        len(rows),
+        tasks_with_scalar,
+        fallback_tasks,
+    )
     return tuple(rows)
 
 
@@ -382,17 +571,21 @@ def _extract_linhas_base_faseadas(
     project, nome_do_projeto: str
 ) -> tuple[LinhaBaseFaseadaTarefaDTO, ...]:
     """Extrai LinhaDeBaseDoConjuntoDeDadosFaseadosNoTempoDaTarefa via MPXJ."""
-    from org.mpxj import TimeUnit
     from org.mpxj.common import TimescaleHelper
 
     helper = TimescaleHelper()
     rows: list[LinhaBaseFaseadaTarefaDTO] = []
     seen: set[tuple[int, date, int]] = set()
+    tasks_with_scalar = 0
+    fallback_tasks = 0
 
     for task in project.getTasks():
         uid = _java_int(task.getUniqueID())
         if uid is None:
             continue
+
+        calendar = task.getEffectiveCalendar()
+        used_fallback_for_task = False
 
         for baseline_number in _BASELINE_INDEXES:
             start = _to_start_of_day(_task_baseline_start_at(task, baseline_number))
@@ -401,22 +594,24 @@ def _extract_linhas_base_faseadas(
             if ranges is None:
                 continue
 
-            work_list = task.getTimephasedBaselineWork(
-                baseline_number, ranges, TimeUnit.HOURS
-            )
-            cost_list = task.getTimephasedBaselineCost(baseline_number, ranges)
+            scalar = _task_baseline_cost_at(task, baseline_number)
+            if scalar > _COST_EPS:
+                tasks_with_scalar += 1
 
-            emitted_for_baseline = False
+            native_cost = task.getTimephasedBaselineCost(baseline_number, ranges)
+            costs, used_fallback = _timephased_or_spread(
+                native_cost,
+                ranges,
+                scalar,
+                calendar,
+                _task_baseline_accrual_at(task, baseline_number),
+            )
+            if used_fallback:
+                used_fallback_for_task = True
+
             for index in range(ranges.size()):
-                work_amount = (
-                    _duration_amount(work_list.get(index))
-                    if work_list is not None and index < work_list.size()
-                    else 0.0
-                )
-                cost_amount = 0.0
-                if cost_list is not None and index < cost_list.size():
-                    cost_amount = _numeric_amount(cost_list.get(index))
-                if work_amount <= 0 and cost_amount <= 0:
+                cost_amount = costs[index]
+                if cost_amount <= _COST_EPS:
                     continue
 
                 day = _java_date(ranges.get(index).getStart())
@@ -435,28 +630,18 @@ def _extract_linhas_base_faseadas(
                         custo_de_linha_base=cost_amount,
                     )
                 )
-                emitted_for_baseline = True
 
-            # Sem timephased numérico: gera um ponto por dia no intervalo da baseline.
-            if not emitted_for_baseline:
-                for index in range(ranges.size()):
-                    day = _java_date(ranges.get(index).getStart())
-                    if day is None:
-                        continue
-                    key = (uid, day, baseline_number)
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    rows.append(
-                        LinhaBaseFaseadaTarefaDTO(
-                            nome_do_projeto=nome_do_projeto,
-                            id_tarefa=uid,
-                            hora_por_dia=day,
-                            numero_linha_base=baseline_number,
-                            custo_de_linha_base=0.0,
-                        )
-                    )
+        if used_fallback_for_task:
+            fallback_tasks += 1
 
+    logger.info(
+        "Linhas de base faseadas '%s': %d linha(s); %d baseline(s) com custo; "
+        "%d tarefa(s) com rateio por dia útil.",
+        nome_do_projeto,
+        len(rows),
+        tasks_with_scalar,
+        fallback_tasks,
+    )
     return tuple(rows)
 
 
