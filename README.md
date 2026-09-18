@@ -146,7 +146,13 @@ importação de `.mpp` apaga e reinsere as linhas daquele `nome_do_projeto`.
 | `custo_tarefa` | CustoTarefa |
 | `custo_real_da_tarefa` | CustoRealDaTarefa |
 
-Os valores diários vêm do timephased nativo do MS Project (`Cost` / `ActualCost`, mais `BudgetCost` quando existir). Se o arquivo só tiver o total da tarefa (custo fixo sem trabalho de recurso, caso típico de obra), o pipeline rateia esse total pelos **dias úteis** do calendário da tarefa, respeitando o acúmulo (`START`, `END` ou `PRORATED`). Dias com custo e custo real iguais a zero não são gravados.
+Os valores gravados são **custo próprio** de cada tarefa: `FixedCost` + soma das atribuições (`Cost`). Resumos da WBS **não** recebem o rollup (`Cost` / `ActualCost` da tarefa-pai, já soma dos filhos). O custo real segue a mesma regra nas atribuições; em folha, usa `ActualCost` da tarefa quando esse valor é maior (custo fixo apropriado).
+
+Os valores diários vêm do timephased nativo do MS Project (`Cost` / `ActualCost`, mais `BudgetCost` quando existir), **somente se a soma dos dias não ultrapassar o total próprio em mais de 1%**. Se o nativo estiver vazio, inflado (por exemplo o total repetido em cada dia) ou a tarefa só tiver o total (custo fixo sem trabalho de recurso, caso típico de obra), o pipeline rateia esse total pelos **dias úteis** do calendário da tarefa, respeitando o acúmulo (`START`, `END` ou `PRORATED`). Dia com custo e custo real iguais a zero não é gravado. Pai sem custo próprio não gera linhas.
+
+A coluna já é diária: no Power BI use `SUM` de `custo_tarefa` / `custo_real_da_tarefa`. **Não** multiplique por dias nem use um total de tarefa × `COUNTROWS` do calendário.
+
+Dados já importados só se corrigem **reimportando** o `.mpp` (o watcher substitui as três tabelas daquele `nome_do_projeto`).
 
 ### `linhas_base_faseadas_tarefa` (LinhaDeBaseDoConjuntoDeDadosFaseadosNoTempoDaTarefa)
 
@@ -158,4 +164,20 @@ Os valores diários vêm do timephased nativo do MS Project (`Cost` / `ActualCos
 | `numero_linha_base` | NúmeroDeLinhaBase (0 = Baseline, 1..10 = Baseline1..10) |
 | `custo_de_linha_base` | CustoDeLinhaDeBase |
 
-A linha de base faseada usa `getTimephasedBaselineCost` quando o MPP traz a distribuição. Se só existir o total (`BaselineCost` / `BaselineFixedCost`), o valor é rateado pelos dias úteis entre `BaselineStart` e `BaselineFinish`. Baseline sem custo não gera linhas (não grava zeros).
+A linha de base gravada é **custo próprio**: `BaselineFixedCost` + soma das atribuições (`BaselineCost` da atribuição). O `BaselineCost` da tarefa-resumo (rollup dos filhos) é ignorado; pai sem custo próprio não gera linhas.
+
+A distribuição diária usa `getTimephasedBaselineCost` quando a soma dos dias não ultrapassa o total próprio em mais de 1%. Se o nativo estiver vazio, inflado ou só existir o total, o valor é rateado pelos dias úteis entre `BaselineStart` e `BaselineFinish`. Baseline sem custo próprio não gera linhas (não grava zeros).
+
+No Power BI filtre a baseline corrente e some a coluna diária (nomes SQL; se o modelo usar aliases OData, troque tabela/coluna):
+
+```dax
+Custo Linha de Base =
+CALCULATE(
+    SUM(linhas_base_faseadas_tarefa[custo_de_linha_base]),
+    linhas_base_faseadas_tarefa[numero_linha_base] = 0
+)
+```
+
+A coluna já é diária: **não** multiplique por dias, **não** use `SUMX` de um total de tarefa × `COUNTROWS` do calendário, **não** some `numero_linha_base` 1..10 junto com 0.
+
+Dados já importados só se corrigem **reimportando** o `.mpp`.

@@ -15,6 +15,8 @@ PROJECT_FILE_EXTENSION = ".mpp"
 # Índices de baseline do MS Project: 0 = Baseline, 1..10 = Baseline1..Baseline10.
 _BASELINE_INDEXES = range(0, 11)
 _COST_EPS = 1e-9
+_NATIVE_INFLATE_RATIO = 1.01
+_NATIVE_INFLATE_ABS = 0.01
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,20 +191,46 @@ def _task_baseline_finish_at(task, baseline_number: int):
     return task.getBaselineFinish(baseline_number)
 
 
-def _task_baseline_cost_at(task, baseline_number: int) -> float:
-    """Custo total da linha de base N, com fallback para custo fixo da baseline."""
-    if baseline_number == 0:
-        cost = _numeric_amount(task.getBaselineCost())
-        if cost > _COST_EPS:
-            return cost
-        getter = getattr(task, "getBaselineFixedCost", None)
-        return _numeric_amount(getter()) if getter is not None else 0.0
+def _call_cost_getter(obj, name: str, baseline_number: int | None = None) -> float:
+    """Chama getCost/getBaselineCost/getActualCost no objeto MPXJ, ou 0."""
+    getter = getattr(obj, name, None)
+    if getter is None:
+        return 0.0
+    try:
+        if baseline_number is None:
+            return _numeric_amount(getter())
+        if baseline_number == 0:
+            try:
+                return _numeric_amount(getter())
+            except TypeError:
+                return _numeric_amount(getter(0))
+        return _numeric_amount(getter(baseline_number))
+    except Exception:
+        return 0.0
 
-    cost = _numeric_amount(task.getBaselineCost(baseline_number))
-    if cost > _COST_EPS:
-        return cost
-    getter = getattr(task, "getBaselineFixedCost", None)
-    return _numeric_amount(getter(baseline_number)) if getter is not None else 0.0
+
+def _sum_assignment_costs(
+    task, getter_name: str, baseline_number: int | None = None
+) -> float:
+    """Soma um campo de custo nas atribuições da tarefa."""
+    assignments = task.getResourceAssignments()
+    if assignments is None:
+        return 0.0
+    total = 0.0
+    for assignment in assignments:
+        total += _call_cost_getter(assignment, getter_name, baseline_number)
+    return total
+
+
+def _task_is_summary(task) -> bool:
+    """True se a tarefa é resumo (WBS pai)."""
+    return bool(_java_bool(task.getSummary()))
+
+
+def _task_baseline_cost_at(task, baseline_number: int) -> float:
+    """Custo próprio da linha de base N: BaselineFixedCost + atribuições."""
+    fixed = _call_cost_getter(task, "getBaselineFixedCost", baseline_number)
+    return fixed + _sum_assignment_costs(task, "getBaselineCost", baseline_number)
 
 
 def _task_baseline_accrual_at(task, baseline_number: int):
@@ -407,30 +435,18 @@ def _spread_amount(
 
 
 def _task_scalar_cost(task) -> float:
-    """Custo planejado da tarefa: Cost, senão FixedCost, senão soma das atribuições."""
-    cost = _numeric_amount(task.getCost())
-    if cost > _COST_EPS:
-        return cost
-    getter = getattr(task, "getFixedCost", None)
-    if getter is not None:
-        fixed = _numeric_amount(getter())
-        if fixed > _COST_EPS:
-            return fixed
-    assignments = task.getResourceAssignments()
-    if assignments is None:
-        return 0.0
-    total = 0.0
-    for assignment in assignments:
-        assignment_getter = getattr(assignment, "getCost", None)
-        if assignment_getter is not None:
-            total += _numeric_amount(assignment_getter())
-    return total
+    """Custo planejado próprio: FixedCost + soma das atribuições (sem rollup)."""
+    fixed = _call_cost_getter(task, "getFixedCost")
+    return fixed + _sum_assignment_costs(task, "getCost")
 
 
 def _task_scalar_actual_cost(task) -> float:
-    """Custo real da tarefa."""
-    getter = getattr(task, "getActualCost", None)
-    return _numeric_amount(getter()) if getter is not None else 0.0
+    """Custo real próprio: atribuições; na folha, ActualCost da tarefa se for maior."""
+    assignment_actual = _sum_assignment_costs(task, "getActualCost")
+    if _task_is_summary(task):
+        return assignment_actual
+    task_actual = _call_cost_getter(task, "getActualCost")
+    return max(assignment_actual, task_actual)
 
 
 def _day_in_interval(day: date | None, start, finish) -> bool:
@@ -453,16 +469,24 @@ def _timephased_or_spread(
     calendar,
     accrual,
     working_indices: list[int] | None = None,
-) -> tuple[list[float], bool]:
-    """Usa o timephased nativo; se a soma for ~0 e houver total, rateia o total."""
+) -> tuple[list[float], bool, bool]:
+    """Usa o nativo se bater com o total próprio; senão rateia. Pai sem custo próprio zera."""
     size = ranges.size()
+    if scalar <= _COST_EPS:
+        return [0.0] * size, False, False
+
     native = [_list_amount_at(native_values, index) for index in range(size)]
-    if sum(native) > _COST_EPS or scalar <= _COST_EPS:
-        return native, False
+    native_sum = sum(native)
+    inflate_limit = scalar * _NATIVE_INFLATE_RATIO + _NATIVE_INFLATE_ABS
+    if _COST_EPS < native_sum <= inflate_limit:
+        return native, False, False
+
     indices = working_indices if working_indices is not None else _working_indices(
         calendar, ranges
     )
-    return _spread_amount(scalar, indices, accrual, size), True
+    spread = _spread_amount(scalar, indices, accrual, size)
+    inflated = native_sum > inflate_limit
+    return spread, True, inflated
 
 
 def _extract_conjunto_dados_faseados(
@@ -476,6 +500,7 @@ def _extract_conjunto_dados_faseados(
     seen: set[tuple[int, date]] = set()
     tasks_with_scalar = 0
     fallback_tasks = 0
+    inflated_slices = 0
 
     for task in project.getTasks():
         uid = _java_int(task.getUniqueID())
@@ -506,7 +531,7 @@ def _extract_conjunto_dados_faseados(
         if budget_getter is not None:
             native_budget = budget_getter(ranges)
 
-        costs, used_cost_fallback = _timephased_or_spread(
+        costs, used_cost_fallback, cost_inflated = _timephased_or_spread(
             native_cost, ranges, scalar_cost, calendar, accrual, working_indices
         )
         if native_budget is not None:
@@ -522,7 +547,7 @@ def _extract_conjunto_dados_faseados(
                 _java_date(ranges.get(index).getStart()), actual_start, actual_finish
             )
         ]
-        actuals, used_actual_fallback = _timephased_or_spread(
+        actuals, used_actual_fallback, actual_inflated = _timephased_or_spread(
             native_actual,
             ranges,
             scalar_actual,
@@ -532,6 +557,7 @@ def _extract_conjunto_dados_faseados(
         )
         if used_cost_fallback or used_actual_fallback:
             fallback_tasks += 1
+        inflated_slices += int(cost_inflated) + int(actual_inflated)
 
         for index in range(ranges.size()):
             custo = costs[index]
@@ -557,12 +583,13 @@ def _extract_conjunto_dados_faseados(
             )
 
     logger.info(
-        "Faseados '%s': %d linha(s); %d tarefa(s) com custo total; "
-        "%d com rateio por dia útil.",
+        "Faseados '%s': %d linha(s); %d tarefa(s) com custo próprio; "
+        "%d com rateio por dia útil; %d fatia(s) com timephased inflado.",
         nome_do_projeto,
         len(rows),
         tasks_with_scalar,
         fallback_tasks,
+        inflated_slices,
     )
     return tuple(rows)
 
@@ -578,6 +605,7 @@ def _extract_linhas_base_faseadas(
     seen: set[tuple[int, date, int]] = set()
     tasks_with_scalar = 0
     fallback_tasks = 0
+    inflated_slices = 0
 
     for task in project.getTasks():
         uid = _java_int(task.getUniqueID())
@@ -599,7 +627,7 @@ def _extract_linhas_base_faseadas(
                 tasks_with_scalar += 1
 
             native_cost = task.getTimephasedBaselineCost(baseline_number, ranges)
-            costs, used_fallback = _timephased_or_spread(
+            costs, used_fallback, inflated = _timephased_or_spread(
                 native_cost,
                 ranges,
                 scalar,
@@ -608,6 +636,8 @@ def _extract_linhas_base_faseadas(
             )
             if used_fallback:
                 used_fallback_for_task = True
+            if inflated:
+                inflated_slices += 1
 
             for index in range(ranges.size()):
                 cost_amount = costs[index]
@@ -635,12 +665,13 @@ def _extract_linhas_base_faseadas(
             fallback_tasks += 1
 
     logger.info(
-        "Linhas de base faseadas '%s': %d linha(s); %d baseline(s) com custo; "
-        "%d tarefa(s) com rateio por dia útil.",
+        "Linhas de base faseadas '%s': %d linha(s); %d baseline(s) com custo próprio; "
+        "%d tarefa(s) com rateio por dia útil; %d fatia(s) com timephased inflado.",
         nome_do_projeto,
         len(rows),
         tasks_with_scalar,
         fallback_tasks,
+        inflated_slices,
     )
     return tuple(rows)
 
