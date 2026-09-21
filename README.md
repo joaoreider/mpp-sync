@@ -122,9 +122,9 @@ A pasta `mpp/` pode ter o arquivo local `HRG - 04.mpp` (não versionado). Sem o 
 
 ## Banco
 
-Na primeira execução (ou ao detectar schema legado), o pipeline cria/recria
-três tabelas alinhadas aos datasets do Project Online / Power BI. Cada
-importação de `.mpp` apaga e reinsere as linhas daquele `nome_do_projeto`.
+Na primeira execução (ou ao detectar schema legado, inclusive as tabelas
+faseadas antigas), o pipeline cria/recria somente `tarefas`. Cada importação
+de `.mpp` apaga e reinsere as linhas daquele `nome_do_projeto`.
 
 ### `tarefas` (dataset Tarefas)
 
@@ -144,52 +144,19 @@ importação de `.mpp` apaga e reinsere as linhas daquele `nome_do_projeto`.
 | `tarefa_e_resumo` | TarefaÉResumo |
 | `tarefa_esta_ativa` | TarefaEstáAtiva |
 | `wbs_da_tarefa` | WBSDaTarefa |
+| `custo` | Custo (total da baseline 0) |
+| `numero_linha_base` | NúmeroDeLinhaDeBase (sempre 0) |
+| `custo_real` | CustoReal |
+| `custo_projetado` | CustoProjetado |
 
-### `conjunto_dados_faseados_tarefa` (ConjuntoDeDadosFaseadosNoTempoDaTarefa)
+Os três custos já são o **total da tarefa**. No Power BI, `SUM` soma tarefas. Não multiplique por dias.
 
-| Coluna SQL | Equivalente Power BI |
-|---|---|
-| `nome_do_projeto` | (escopo multi-arquivo; não existe no OData) |
-| `id_tarefa` | IdDaTarefa |
-| `hora_por_dia` | HoraPorDia |
-| `custo_tarefa` | CustoTarefa |
-| `custo_real_da_tarefa` | CustoRealDaTarefa |
+Valores são **custo próprio** (`FixedCost` + atribuições). Rollup WBS do pai é ignorado. Resumo que **guarda** o custo no próprio FixedCost entra no total. Tarefa sem custo próprio fica com 0. Baselines 1–10 não são lidas. `numero_linha_base` é sempre 0.
 
-Valores são **custo próprio** (`FixedCost` + atribuições). Rollup WBS do pai é ignorado. Resumo que **guarda** o custo no próprio FixedCost entra na série.
+O motor ainda distribui o valor pelos dias úteis só para fechar o total (timephased nativo se a soma dos dias estiver a ±1% do total próprio; senão rateio `START` / `END` / `PRORATED`). Essa série não é gravada.
 
-- `custo_real_da_tarefa`: mesmo motor da linha de base, com as datas do cronograma atual (`Start`/`Finish`; fallback em `ActualStart`/`ActualFinish`). Nativo: `getTimephasedActualCost` (+ fixo se não estiver incluído).
-- `custo_tarefa`: projetado (EAC). Até a **Status Date** do `.mpp` copia o custo real; depois usa remaining. Sem `BudgetCost`.
-
-Timephased nativo só é usado se a soma dos dias estiver a ±1% do total próprio. Caso contrário (vazio, abaixo demais, inflado, ou só o total — típico de custo fixo de obra), o pipeline rateia pelos **dias úteis** do calendário, conforme o acúmulo (`START`, `END` ou `PRORATED`). Dia com as duas colunas iguais a zero não é gravado.
-
-A coluna já é diária: no Power BI use `SUM`. **Não** multiplique por dias nem use um total de tarefa × `COUNTROWS` do calendário.
-
-Dados já importados só se corrigem **reimportando** o `.mpp` (o watcher substitui as três tabelas daquele `nome_do_projeto`).
-
-### `linhas_base_faseadas_tarefa` (LinhaDeBaseDoConjuntoDeDadosFaseadosNoTempoDaTarefa)
-
-| Coluna SQL | Equivalente Power BI |
-|---|---|
-| `nome_do_projeto` | (escopo multi-arquivo; não existe no OData) |
-| `id_tarefa` | IdDaTarefa |
-| `hora_por_dia` | HoraPorDia |
-| `numero_linha_base` | NúmeroDeLinhaBase (0 = Baseline, 1..10 = Baseline1..10) |
-| `custo_de_linha_base` | CustoDeLinhaDeBase |
-
-A linha de base gravada é **custo próprio** nas datas do plano base (`BaselineStart`/`BaselineFinish`): `BaselineFixedCost` + `BaselineCost` das atribuições. O `BaselineCost` rollup do pai é ignorado; pai sem custo próprio não gera linhas. No `mpp/HRG - 04.mpp`, a soma da baseline 0 é **1.360.295,86**.
-
-A distribuição diária usa `getTimephasedBaselineCost` quando a soma dos dias está a ±1% do total próprio. Se o nativo estiver vazio, abaixo demais, inflado ou só existir o total, o valor é rateado pelos dias úteis. Baseline sem custo próprio não gera linhas (não grava zeros).
-
-No Power BI filtre a baseline corrente e some a coluna diária (nomes SQL; se o modelo usar aliases OData, troque tabela/coluna):
-
-```dax
-Custo Linha de Base =
-CALCULATE(
-    SUM(linhas_base_faseadas_tarefa[custo_de_linha_base]),
-    linhas_base_faseadas_tarefa[numero_linha_base] = 0
-)
-```
-
-A coluna já é diária: **não** multiplique por dias, **não** use `SUMX` de um total de tarefa × `COUNTROWS` do calendário, **não** some `numero_linha_base` 1..10 junto com 0.
+- `custo`: soma do custo próprio nas datas do plano base (`BaselineStart`/`BaselineFinish`): `BaselineFixedCost` + `BaselineCost` das atribuições. No `mpp/HRG - 04.mpp` a soma é **1.360.295,86**.
+- `custo_real`: mesmo motor, nas datas do cronograma atual (`Start`/`Finish`; fallback em `ActualStart`/`ActualFinish`). Nativo: `getTimephasedActualCost` (+ fixo se não estiver incluído). No HRG-04 a soma é **628.914,56**.
+- `custo_projetado`: EAC. Até a **Status Date** do `.mpp` usa o custo real; depois usa remaining. Sem `BudgetCost`.
 
 Dados já importados só se corrigem **reimportando** o `.mpp`.

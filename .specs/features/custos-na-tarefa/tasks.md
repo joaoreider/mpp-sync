@@ -9,7 +9,7 @@ Implement these tasks with the `tlc-spec-driven` skill: **activate it by name an
 ---
 
 **Design**: skipped — agregar a série diária já existente e gravar o total em `tarefas`
-**Status**: Approved
+**Status**: Done
 
 ---
 
@@ -178,10 +178,10 @@ T1 -> T2 -> T3 -> T4 -> T5
 
 **Done when**:
 
-- [ ] O README lista `custo`, `numero_linha_base`, `custo_real` e `custo_projetado` em `tarefas`
-- [ ] O README não documenta `conjunto_dados_faseados_tarefa` nem `linhas_base_faseadas_tarefa`
-- [ ] Gate check passes: `pytest -q`
-- [ ] Test count: full suite passes (no silent deletions)
+- [x] O README lista `custo`, `numero_linha_base`, `custo_real` e `custo_projetado` em `tarefas`
+- [x] O README não documenta `conjunto_dados_faseados_tarefa` nem `linhas_base_faseadas_tarefa`
+- [x] Gate check passes: `pytest -q`
+- [x] Test count: full suite passes (no silent deletions)
 
 **Tests**: none
 **Gate**: build
