@@ -5,16 +5,32 @@ from datetime import date
 import pytest
 
 from cost_engine import (
+    accrued_amount,
     clip_to_after,
     clip_to_on_or_before,
     combine_resource_and_fixed,
     indices_after,
+    integer_percent,
     own_or_assignment,
     spread_amount,
     stitch_hybrid,
     timephased_or_spread,
 )
 from field_catalog import CAMPOS_PERSISTIDOS, CAMPOS_POR_COLUNA, CAMPO_CUSTO_TAREFA
+
+
+def test_integer_percent_matches_project_half_up():
+    assert integer_percent(0, 295) == 0.0
+    assert integer_percent(295, 295) == 1.0
+    assert integer_percent(215, 295) == 0.73
+    assert integer_percent(223, 295) == 0.76
+
+
+def test_accrued_amount_prorates_rounded_percent():
+    assert accrued_amount(76_339.71, 0.76, "PRORATED") == pytest.approx(58_018.18, abs=0.01)
+    assert accrued_amount(100.0, 0.4, "START") == 100.0
+    assert accrued_amount(100.0, 0.4, "END") == 0.0
+    assert accrued_amount(100.0, 1.0, "END") == 100.0
 
 
 def test_spread_start_puts_all_on_first_working_day():

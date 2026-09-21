@@ -5,16 +5,14 @@ Para mudar a regra, altere o spec e a função apontada em `mpp_java.py` /
 `cost_engine.py`. Cada linha de `tarefas` é um dia (`hora_por_dia`); o total
 da tarefa é a soma dessas linhas.
 
-Motor comum: `cost_engine.timephased_or_spread` (timephased nativo do MPXJ se a
-soma dos dias estiver a ±1% do total próprio; senão rateio por dia
-útil conforme acúmulo START/END/PRORATED).
+O dia (`hora_por_dia`) de `custo`, `custo_real` e `custo_projetado` é um
+dia útil entre Start e Finish. O rateio segue o acúmulo START/END/PRORATED.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-EIXO_BASELINE = "baseline"
 EIXO_CRONOGRAMA_ATUAL = "cronograma_atual"
 EIXO_HIBRIDO_STATUS = "hibrido_status"
 
@@ -44,13 +42,15 @@ CAMPO_CUSTO_LINHA_BASE = CampoCustoFaseado(
     descricao=(
         "Custo próprio da baseline 0 no dia de hora_por_dia. "
         "BaselineFixedCost + BaselineCost das atribuições, sem rollup WBS. "
-        "Baselines 1..10 não são lidas. Pai sem custo próprio não gera dia."
+        "Baselines 1..10 não são lidas. O valor é rateado nos dias úteis "
+        "entre Start e Finish, não nas datas da baseline. "
+        "Pai sem custo próprio não gera dia."
     ),
-    eixo_datas=EIXO_BASELINE,
+    eixo_datas=EIXO_CRONOGRAMA_ATUAL,
     total_proprio="mpp_java.task_scalar_baseline_cost",
-    timephased_nativo="task.getTimephasedBaselineCost(n, ranges)",
+    timephased_nativo="não usa o timephased da baseline; o eixo é Start/Finish",
     fallback=(
-        "rateio por dias úteis entre BaselineStart e BaselineFinish, "
+        "rateio por dias úteis entre Start e Finish, "
         "conforme BaselineFixedCostAccrual"
     ),
     estrategia=ESTRATEGIA_NATIVO_OU_RATEIO,
@@ -61,24 +61,22 @@ CAMPO_CUSTO_REAL = CampoCustoFaseado(
     equivalente_power_bi="CustoReal",
     tabela_sql="tarefas",
     descricao=(
-        "Custo real próprio no dia de hora_por_dia. A série usa o mesmo motor da "
-        "linha de base, com as datas do cronograma atual (Start/Finish; "
-        "fallback limitado a ActualStart/ActualFinish). Total = atribuições "
-        "ActualCost; se o ActualCost da tarefa couber no teto próprio "
-        "(FixedCost + atribuições), usa esse valor (custo fixo apropriado "
-        "em folha ou em resumo WBS que guarda o custo). Rollup do pai é "
-        "ignorado. Cada dia com valor fica em hora_por_dia."
+        "Custo real próprio no dia de hora_por_dia, reconhecido até a data "
+        "da sincronização. O valor da tarefa é o custo próprio (FixedCost + "
+        "atribuições, sem rollup WBS) vezes o % concluído até esse dia. Na "
+        "folha o % é o arredondamento de dias úteis decorridos / duração "
+        "entre Start e Finish. No resumo o % é a média ponderada pela "
+        "duração dos filhos. O valor fica só nos dias úteis até a data; "
+        "o campo ActualCost gravado no .mpp não é usado, porque fica parado "
+        "na Status Date."
     ),
     eixo_datas=EIXO_CRONOGRAMA_ATUAL,
-    total_proprio="mpp_java.task_scalar_actual_cost",
-    timephased_nativo=(
-        "getTimephasedActualCost + getTimephasedActualFixedCost "
-        "(sem duplicar se o recurso já incluir o fixo)"
-    ),
+    total_proprio="cost_engine.accrued_amount",
+    timephased_nativo="não usa o timephased gravado; o total segue o % até a data",
     fallback=(
-        "rateio por dias úteis do calendário da tarefa dentro de "
-        "ActualStart..ActualFinish (ou Start..Finish se não houver actual), "
-        "conforme FixedCostAccrual"
+        "rateio do valor reconhecido pelos dias úteis de Start até a data, "
+        "conforme FixedCostAccrual (START no primeiro dia, END no último, "
+        "PRORATED dividido nos dias decorridos)"
     ),
     estrategia=ESTRATEGIA_NATIVO_OU_RATEIO,
 )
@@ -88,19 +86,15 @@ CAMPO_CUSTO_REMAINING = CampoCustoFaseado(
     equivalente_power_bi="",
     tabela_sql="",
     descricao=(
-        "Série interna, não persistida. Remaining próprio = "
-        "max(atribuições RemainingCost, total próprio − custo real próprio). "
-        "Nativo: RemainingCost + RemainingFixedCost. Usada só no stitch de "
-        "custo_projetado nos dias depois da Status Date."
+        "Série interna, não persistida. Remaining próprio = custo próprio "
+        "menos o custo real reconhecido até a data da sincronização. "
+        "Entra em custo_projetado nos dias depois dessa data."
     ),
     eixo_datas=EIXO_CRONOGRAMA_ATUAL,
-    total_proprio="mpp_java.task_scalar_remaining_cost",
-    timephased_nativo=(
-        "getTimephasedRemainingCost + getTimephasedRemainingFixedCost "
-        "(sem duplicar se o recurso já incluir o fixo)"
-    ),
+    total_proprio="custo próprio − custo real reconhecido",
+    timephased_nativo="não usa o timephased gravado; remaining = custo próprio − real",
     fallback=(
-        "rateio por dias úteis depois da Status Date até Finish, "
+        "rateio por dias úteis depois da data da sincronização até Finish, "
         "conforme FixedCostAccrual"
     ),
     estrategia=ESTRATEGIA_NATIVO_OU_RATEIO,
@@ -111,14 +105,13 @@ CAMPO_CUSTO_TAREFA = CampoCustoFaseado(
     equivalente_power_bi="CustoProjetado",
     tabela_sql="tarefas",
     descricao=(
-        "Custo projetado (EAC) no dia de hora_por_dia. Até a Status Date do "
-        ".mpp (ProjectProperties.getStatusDate; se vazia, getCurrentDate; se "
-        "ainda vazia, hoje) copia o custo real; nos dias seguintes usa "
+        "Custo projetado (EAC) no dia de hora_por_dia. Até a data da "
+        "sincronização copia o custo real; nos dias seguintes usa o "
         "remaining. Não inclui BudgetCost."
     ),
     eixo_datas=EIXO_HIBRIDO_STATUS,
     total_proprio=(
-        "custo real próprio até a Status Date + remaining próprio depois"
+        "custo real próprio até a data da sincronização + remaining depois"
     ),
     timephased_nativo="stitch de CAMPO_CUSTO_REAL e CAMPO_CUSTO_REMAINING",
     fallback="cost_engine.stitch_hybrid",

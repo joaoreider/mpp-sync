@@ -156,8 +156,8 @@ Valores são **custo próprio** (`FixedCost` + atribuições). Rollup WBS do pai
 
 O motor distribui o valor pelos dias úteis (timephased nativo se a soma dos dias estiver a ±1% do total próprio; senão rateio `START` / `END` / `PRORATED`) e grava cada dia em `hora_por_dia`.
 
-- `custo`: custo próprio do dia nas datas do plano base (`BaselineStart`/`BaselineFinish`): `BaselineFixedCost` + `BaselineCost` das atribuições. No `mpp/HRG - 04.mpp` a soma dos dias é **1.360.295,86**.
-- `custo_real`: mesmo motor, nas datas do cronograma atual (`Start`/`Finish`; fallback em `ActualStart`/`ActualFinish`). Nativo: `getTimephasedActualCost` (+ fixo se não estiver incluído). No HRG-04 a soma é **628.914,56**.
-- `custo_projetado`: EAC. Até a **Status Date** do `.mpp` usa o custo real; depois usa remaining. Sem `BudgetCost`.
+- `custo`: custo próprio da baseline 0 (`BaselineFixedCost` + `BaselineCost` das atribuições), rateado nos dias úteis de início e conclusão atuais (`Start`/`Finish`). No `mpp/HRG - 04.mpp` a soma dos dias é **1.360.295,86**.
+- `custo_real`: custo próprio reconhecido até o dia da sincronização, nas datas de início e conclusão atuais (`Start`/`Finish`, não a baseline). Na folha, % concluída = dias úteis decorridos ÷ duração, arredondado. No resumo, % = média ponderada pela duração dos filhos. O `ActualCost` gravado no arquivo fica parado na Status Date e não entra na conta. No HRG-04, em 21/09/2026, a soma é **751.973,89** e a tarefa Estaleiro obra é **58.018,18**.
+- `custo_projetado`: EAC. Até o dia da sincronização usa o custo real; depois usa o remaining. Sem `BudgetCost`.
 
 Dados já importados só se corrigem **reimportando** o `.mpp`.
