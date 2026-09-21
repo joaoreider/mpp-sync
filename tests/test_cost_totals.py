@@ -6,12 +6,11 @@ from project_parser import (
     ArquivoProjetoDTO,
     _BaselineDia,
     _CustoDia,
-    _cost_totals_by_task,
-    costs_or_zero,
+    _days_by_task,
 )
 
 
-def test_cost_totals_sum_baseline_zero_only():
+def test_days_by_task_keeps_each_day_and_ignores_other_baselines():
     faseados = (
         _CustoDia(
             id_tarefa=1,
@@ -46,11 +45,14 @@ def test_cost_totals_sum_baseline_zero_only():
             custo=99.0,
         ),
     )
-    assert _cost_totals_by_task(faseados, baselines)[1] == (12.0, 5.0, 8.0)
+    assert _days_by_task(faseados, baselines)[1] == (
+        (date(2026, 1, 1), 10.0, 5.0, 5.0),
+        (date(2026, 1, 2), 2.0, 0.0, 3.0),
+    )
 
 
-def test_costs_or_zero_for_missing_task():
-    assert costs_or_zero({}, 7) == (0.0, 0.0, 0.0)
+def test_arquivo_sem_serie_publica_e_tarefa_sem_dia_fica_de_fora():
+    assert _days_by_task((), ()) == {}
     assert not hasattr(
         ArquivoProjetoDTO(nome_do_projeto="x", tarefas=()),
         "conjunto_dados_faseados",

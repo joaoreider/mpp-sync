@@ -95,6 +95,7 @@ def persist_arquivo(session: Session, dto: ArquivoProjetoDTO) -> None:
                 tarefa_e_resumo=tarefa_dto.tarefa_e_resumo,
                 tarefa_esta_ativa=tarefa_dto.tarefa_esta_ativa,
                 wbs_da_tarefa=tarefa_dto.wbs_da_tarefa,
+                hora_por_dia=tarefa_dto.hora_por_dia,
                 custo=tarefa_dto.custo,
                 numero_linha_base=tarefa_dto.numero_linha_base,
                 custo_real=tarefa_dto.custo_real,

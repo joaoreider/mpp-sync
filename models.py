@@ -39,7 +39,8 @@ class Tarefa(Base):
         UniqueConstraint(
             "nome_do_projeto",
             "id_tarefa",
-            name="uq_tarefas_projeto_id_tarefa",
+            "hora_por_dia",
+            name="uq_tarefas_projeto_id_tarefa_dia",
         ),
     )
 
@@ -58,6 +59,7 @@ class Tarefa(Base):
     tarefa_e_resumo: Mapped[bool | None] = mapped_column(Boolean)
     tarefa_esta_ativa: Mapped[bool | None] = mapped_column(Boolean)
     wbs_da_tarefa: Mapped[str | None] = mapped_column(String(255))
+    hora_por_dia: Mapped[date | None] = mapped_column(Date)
     custo: Mapped[float] = mapped_column(
         Numeric(18, 2), nullable=False, default=0, server_default="0"
     )
@@ -73,6 +75,7 @@ class Tarefa(Base):
 
 
 _COST_COLUMNS = ("custo", "numero_linha_base", "custo_real", "custo_projetado")
+_REQUIRED_COLUMNS = _COST_COLUMNS + ("hora_por_dia",)
 
 
 def get_engine(database_url: str) -> Engine:
@@ -112,7 +115,7 @@ def _needs_schema_reset(engine: Engine) -> bool:
         }
         if "nome_do_projeto" not in columns or "id_projeto" in columns:
             return True
-        if any(name not in columns for name in _COST_COLUMNS):
+        if any(name not in columns for name in _REQUIRED_COLUMNS):
             return True
     return False
 

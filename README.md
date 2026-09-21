@@ -144,18 +144,19 @@ de `.mpp` apaga e reinsere as linhas daquele `nome_do_projeto`.
 | `tarefa_e_resumo` | TarefaÉResumo |
 | `tarefa_esta_ativa` | TarefaEstáAtiva |
 | `wbs_da_tarefa` | WBSDaTarefa |
-| `custo` | Custo (total da baseline 0) |
+| `hora_por_dia` | HoraPorDia |
+| `custo` | Custo (baseline 0 naquele dia) |
 | `numero_linha_base` | NúmeroDeLinhaDeBase (sempre 0) |
 | `custo_real` | CustoReal |
 | `custo_projetado` | CustoProjetado |
 
-Os três custos já são o **total da tarefa**. No Power BI, `SUM` soma tarefas. Não multiplique por dias.
+Cada linha é um dia da tarefa. No Power BI, `SUM` soma os dias. Não multiplique de novo por dias. Tarefa sem custo próprio fica uma linha com `hora_por_dia` nulo e custos 0.
 
-Valores são **custo próprio** (`FixedCost` + atribuições). Rollup WBS do pai é ignorado. Resumo que **guarda** o custo no próprio FixedCost entra no total. Tarefa sem custo próprio fica com 0. Baselines 1–10 não são lidas. `numero_linha_base` é sempre 0.
+Valores são **custo próprio** (`FixedCost` + atribuições). Rollup WBS do pai é ignorado. Resumo que **guarda** o custo no próprio FixedCost entra no dia. Baselines 1–10 não são lidas. `numero_linha_base` é sempre 0.
 
-O motor ainda distribui o valor pelos dias úteis só para fechar o total (timephased nativo se a soma dos dias estiver a ±1% do total próprio; senão rateio `START` / `END` / `PRORATED`). Essa série não é gravada.
+O motor distribui o valor pelos dias úteis (timephased nativo se a soma dos dias estiver a ±1% do total próprio; senão rateio `START` / `END` / `PRORATED`) e grava cada dia em `hora_por_dia`.
 
-- `custo`: soma do custo próprio nas datas do plano base (`BaselineStart`/`BaselineFinish`): `BaselineFixedCost` + `BaselineCost` das atribuições. No `mpp/HRG - 04.mpp` a soma é **1.360.295,86**.
+- `custo`: custo próprio do dia nas datas do plano base (`BaselineStart`/`BaselineFinish`): `BaselineFixedCost` + `BaselineCost` das atribuições. No `mpp/HRG - 04.mpp` a soma dos dias é **1.360.295,86**.
 - `custo_real`: mesmo motor, nas datas do cronograma atual (`Start`/`Finish`; fallback em `ActualStart`/`ActualFinish`). Nativo: `getTimephasedActualCost` (+ fixo se não estiver incluído). No HRG-04 a soma é **628.914,56**.
 - `custo_projetado`: EAC. Até a **Status Date** do `.mpp` usa o custo real; depois usa remaining. Sem `BudgetCost`.
 

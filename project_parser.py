@@ -79,6 +79,7 @@ class TarefaDTO:
     tarefa_e_resumo: bool | None
     tarefa_esta_ativa: bool | None
     wbs_da_tarefa: str | None
+    hora_por_dia: date | None = None
     custo: float = 0.0
     numero_linha_base: int = 0
     custo_real: float = 0.0
@@ -126,47 +127,48 @@ def parse_project_file(path: Path) -> ArquivoProjetoDTO:
     return parse_ms_project_mpp(path)
 
 
-def costs_or_zero(
-    totals: dict[int, tuple[float, float, float]], id_tarefa: int
-) -> tuple[float, float, float]:
-    """Devolve (custo, custo_real, custo_projetado); tarefa ausente vale zero."""
-    return totals.get(id_tarefa, (0.0, 0.0, 0.0))
-
-
-def _cost_totals_by_task(
+def _days_by_task(
     faseados: tuple[_CustoDia, ...],
     baselines: tuple[_BaselineDia, ...],
-) -> dict[int, tuple[float, float, float]]:
-    """Soma o custo diário por tarefa. Baseline diferente de 0 não entra."""
-    custo: dict[int, float] = {}
-    custo_real: dict[int, float] = {}
-    custo_projetado: dict[int, float] = {}
+) -> dict[int, tuple[tuple[date, float, float, float], ...]]:
+    """id_tarefa -> dias (hora_por_dia, custo, custo_real, custo_projetado).
+
+    Baseline diferente de 0 não entra.
+    """
+    custo: dict[tuple[int, date], float] = {}
+    custo_real: dict[tuple[int, date], float] = {}
+    custo_projetado: dict[tuple[int, date], float] = {}
     for row in baselines:
         if row.numero_linha_base != _BASELINE_NUMERO:
             continue
-        custo[row.id_tarefa] = custo.get(row.id_tarefa, 0.0) + row.custo
+        key = (row.id_tarefa, row.hora_por_dia)
+        custo[key] = custo.get(key, 0.0) + row.custo
     for row in faseados:
-        custo_real[row.id_tarefa] = (
-            custo_real.get(row.id_tarefa, 0.0) + row.custo_real
+        key = (row.id_tarefa, row.hora_por_dia)
+        custo_real[key] = custo_real.get(key, 0.0) + row.custo_real
+        custo_projetado[key] = (
+            custo_projetado.get(key, 0.0) + row.custo_projetado
         )
-        custo_projetado[row.id_tarefa] = (
-            custo_projetado.get(row.id_tarefa, 0.0) + row.custo_projetado
+    grouped: dict[int, list[tuple[date, float, float, float]]] = {}
+    for id_tarefa, day in set(custo) | set(custo_real) | set(custo_projetado):
+        grouped.setdefault(id_tarefa, []).append(
+            (
+                day,
+                custo.get((id_tarefa, day), 0.0),
+                custo_real.get((id_tarefa, day), 0.0),
+                custo_projetado.get((id_tarefa, day), 0.0),
+            )
         )
-    ids = set(custo) | set(custo_real) | set(custo_projetado)
     return {
-        id_tarefa: (
-            custo.get(id_tarefa, 0.0),
-            custo_real.get(id_tarefa, 0.0),
-            custo_projetado.get(id_tarefa, 0.0),
-        )
-        for id_tarefa in ids
+        id_tarefa: tuple(sorted(days, key=lambda item: item[0]))
+        for id_tarefa, days in grouped.items()
     }
 
 
 def _extract_tasks_from_mpp(
     project,
     nome_do_projeto: str,
-    totals: dict[int, tuple[float, float, float]],
+    days_by_task: dict[int, tuple[tuple[date, float, float, float], ...]],
 ) -> tuple[TarefaDTO, ...]:
     """Extrai tarefas de um ProjectFile MPXJ."""
     from org.mpxj import TimeUnit
@@ -179,35 +181,39 @@ def _extract_tasks_from_mpp(
 
         nome_tarefa = java_string(task.getName()) or f"Tarefa {uid}"
         wbs = java_string(task.getWBS()) or java_string(task.getOutlineNumber())
-        custo, custo_real, custo_projetado = costs_or_zero(totals, uid)
-        tarefas.append(
-            TarefaDTO(
-                nome_do_projeto=nome_do_projeto,
-                id_tarefa=uid,
-                nome_tarefa=nome_tarefa,
-                data_inicio=java_date(task.getStart()),
-                data_conclusao=java_date(task.getFinish()),
-                desvio_da_conclusao=java_duration_in_unit(
-                    task.getFinishVariance(), TimeUnit.DAYS
-                ),
-                duracao_da_tarefa=java_duration_in_unit(
-                    task.getDuration(), TimeUnit.DAYS
-                ),
-                duracao_real_da_tarefa=java_duration_in_unit(
-                    task.getActualDuration(), TimeUnit.DAYS
-                ),
-                ordem=java_int(task.getID()),
-                spi_da_tarefa=task_spi(task),
-                id_obra=None,
-                tarefa_e_resumo=java_bool(task.getSummary()),
-                tarefa_esta_ativa=task_active(task),
-                wbs_da_tarefa=wbs,
-                custo=custo,
-                numero_linha_base=_BASELINE_NUMERO,
-                custo_real=custo_real,
-                custo_projetado=custo_projetado,
+        days = days_by_task.get(uid, ())
+        if not days:
+            days = ((None, 0.0, 0.0, 0.0),)
+        for hora_por_dia, custo, custo_real, custo_projetado in days:
+            tarefas.append(
+                TarefaDTO(
+                    nome_do_projeto=nome_do_projeto,
+                    id_tarefa=uid,
+                    nome_tarefa=nome_tarefa,
+                    data_inicio=java_date(task.getStart()),
+                    data_conclusao=java_date(task.getFinish()),
+                    desvio_da_conclusao=java_duration_in_unit(
+                        task.getFinishVariance(), TimeUnit.DAYS
+                    ),
+                    duracao_da_tarefa=java_duration_in_unit(
+                        task.getDuration(), TimeUnit.DAYS
+                    ),
+                    duracao_real_da_tarefa=java_duration_in_unit(
+                        task.getActualDuration(), TimeUnit.DAYS
+                    ),
+                    ordem=java_int(task.getID()),
+                    spi_da_tarefa=task_spi(task),
+                    id_obra=None,
+                    tarefa_e_resumo=java_bool(task.getSummary()),
+                    tarefa_esta_ativa=task_active(task),
+                    wbs_da_tarefa=wbs,
+                    hora_por_dia=hora_por_dia,
+                    custo=custo,
+                    numero_linha_base=_BASELINE_NUMERO,
+                    custo_real=custo_real,
+                    custo_projetado=custo_projetado,
+                )
             )
-        )
 
     return tuple(tarefas)
 
@@ -412,7 +418,7 @@ def parse_ms_project_mpp(mpp_path: Path) -> ArquivoProjetoDTO:
         tarefas=_extract_tasks_from_mpp(
             project,
             nome_do_projeto,
-            _cost_totals_by_task(faseados, baselines),
+            _days_by_task(faseados, baselines),
         ),
         status_date=status_date,
     )

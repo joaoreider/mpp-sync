@@ -1,5 +1,7 @@
 """Persistência dos totais de custo em tarefas."""
 
+from datetime import date
+
 import pytest
 from sqlalchemy import inspect
 
@@ -12,7 +14,12 @@ def _url(path) -> str:
     return f"sqlite:///{path}"
 
 
-def _tarefa(nome_do_projeto: str, id_tarefa: int, custo: float) -> TarefaDTO:
+def _tarefa(
+    nome_do_projeto: str,
+    id_tarefa: int,
+    custo: float,
+    hora_por_dia: date | None = date(2026, 1, 1),
+) -> TarefaDTO:
     return TarefaDTO(
         nome_do_projeto=nome_do_projeto,
         id_tarefa=id_tarefa,
@@ -28,6 +35,7 @@ def _tarefa(nome_do_projeto: str, id_tarefa: int, custo: float) -> TarefaDTO:
         tarefa_e_resumo=False,
         tarefa_esta_ativa=True,
         wbs_da_tarefa="1",
+        hora_por_dia=hora_por_dia,
         custo=custo,
         numero_linha_base=0,
         custo_real=4.25,
@@ -68,6 +76,7 @@ def test_persist_replaces_project_rows_and_keeps_cost_fields(tmp_path):
     obra = session.query(Tarefa).filter(Tarefa.nome_do_projeto == "Obra").all()
     assert len(obra) == 1
     assert obra[0].numero_linha_base == 0
+    assert obra[0].hora_por_dia == date(2026, 1, 1)
     assert float(obra[0].custo) == pytest.approx(20.0)
     assert float(obra[0].custo_real) == pytest.approx(4.25)
     assert float(obra[0].custo_projetado) == pytest.approx(12.0)
@@ -84,11 +93,19 @@ def test_persist_does_not_create_timephased_tables(tmp_path):
         session,
         ArquivoProjetoDTO(
             nome_do_projeto="Obra",
-            tarefas=(_tarefa("Obra", 1, 10.5),),
+            tarefas=(
+                _tarefa("Obra", 1, 10.5, date(2026, 1, 1)),
+                _tarefa("Obra", 1, 3.0, date(2026, 1, 2)),
+            ),
         ),
     )
     session.commit()
+    rows = session.query(Tarefa).filter(Tarefa.nome_do_projeto == "Obra").all()
     session.close()
+    assert {row.hora_por_dia for row in rows} == {
+        date(2026, 1, 1),
+        date(2026, 1, 2),
+    }
 
     tables = set(inspect(get_engine(url)).get_table_names())
     assert "conjunto_dados_faseados_tarefa" not in tables

@@ -2,8 +2,8 @@
 
 Abra este arquivo para ver de onde cada coluna vem e como é calculada.
 Para mudar a regra, altere o spec e a função apontada em `mpp_java.py` /
-`cost_engine.py`. O valor gravado em `tarefas` é o total da tarefa; a série
-diária fica só em memória.
+`cost_engine.py`. Cada linha de `tarefas` é um dia (`hora_por_dia`); o total
+da tarefa é a soma dessas linhas.
 
 Motor comum: `cost_engine.timephased_or_spread` (timephased nativo do MPXJ se a
 soma dos dias estiver a ±1% do total próprio; senão rateio por dia
@@ -42,10 +42,9 @@ CAMPO_CUSTO_LINHA_BASE = CampoCustoFaseado(
     equivalente_power_bi="Custo",
     tabela_sql="tarefas",
     descricao=(
-        "Total do custo próprio da tarefa na baseline 0. "
-        "A série diária (BaselineFixedCost + BaselineCost das atribuições, "
-        "sem rollup WBS) é somada e só esse total é gravado. "
-        "Baselines 1..10 não são lidas. Pai sem custo próprio fica 0."
+        "Custo próprio da baseline 0 no dia de hora_por_dia. "
+        "BaselineFixedCost + BaselineCost das atribuições, sem rollup WBS. "
+        "Baselines 1..10 não são lidas. Pai sem custo próprio não gera dia."
     ),
     eixo_datas=EIXO_BASELINE,
     total_proprio="mpp_java.task_scalar_baseline_cost",
@@ -62,13 +61,13 @@ CAMPO_CUSTO_REAL = CampoCustoFaseado(
     equivalente_power_bi="CustoReal",
     tabela_sql="tarefas",
     descricao=(
-        "Total do custo real próprio. A série diária usa o mesmo motor da "
+        "Custo real próprio no dia de hora_por_dia. A série usa o mesmo motor da "
         "linha de base, com as datas do cronograma atual (Start/Finish; "
         "fallback limitado a ActualStart/ActualFinish). Total = atribuições "
         "ActualCost; se o ActualCost da tarefa couber no teto próprio "
         "(FixedCost + atribuições), usa esse valor (custo fixo apropriado "
         "em folha ou em resumo WBS que guarda o custo). Rollup do pai é "
-        "ignorado. O banco guarda a soma dos dias."
+        "ignorado. Cada dia com valor fica em hora_por_dia."
     ),
     eixo_datas=EIXO_CRONOGRAMA_ATUAL,
     total_proprio="mpp_java.task_scalar_actual_cost",
@@ -112,10 +111,10 @@ CAMPO_CUSTO_TAREFA = CampoCustoFaseado(
     equivalente_power_bi="CustoProjetado",
     tabela_sql="tarefas",
     descricao=(
-        "Total do custo projetado (EAC). A série diária copia o custo real "
-        "até a Status Date do .mpp (ProjectProperties.getStatusDate; se "
-        "vazia, getCurrentDate; se ainda vazia, hoje) e usa remaining nos "
-        "dias seguintes. O banco guarda a soma. Não inclui BudgetCost."
+        "Custo projetado (EAC) no dia de hora_por_dia. Até a Status Date do "
+        ".mpp (ProjectProperties.getStatusDate; se vazia, getCurrentDate; se "
+        "ainda vazia, hoje) copia o custo real; nos dias seguintes usa "
+        "remaining. Não inclui BudgetCost."
     ),
     eixo_datas=EIXO_HIBRIDO_STATUS,
     total_proprio=(

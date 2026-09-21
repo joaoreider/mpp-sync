@@ -30,6 +30,7 @@ def test_init_db_creates_only_tarefas_with_cost_columns(tmp_path):
     for name in _COST_COLUMNS:
         assert name in columns
         assert columns[name]["nullable"] is False
+    assert columns["hora_por_dia"]["nullable"] is True
 
 
 def test_init_db_drops_timephased_tables_and_incomplete_tarefas(tmp_path):
@@ -55,3 +56,4 @@ def test_init_db_drops_timephased_tables_and_incomplete_tarefas(tmp_path):
     assert "tarefas" in tables
     columns = {column["name"] for column in inspector.get_columns("tarefas")}
     assert set(_COST_COLUMNS) <= columns
+    assert "hora_por_dia" in columns

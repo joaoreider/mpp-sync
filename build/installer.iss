@@ -1,5 +1,5 @@
 #define MyAppName "MPPSync"
-#define MyAppVersion "1.0.15"
+#define MyAppVersion "1.0.16"
 #define MyAppPublisher "JP"
 #define MyAppExeName "MPPSync.exe"
 

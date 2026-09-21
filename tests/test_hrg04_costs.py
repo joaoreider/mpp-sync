@@ -36,6 +36,17 @@ def test_hrg04_every_task_baseline_number_is_zero(hrg04):
     assert {row.numero_linha_base for row in hrg04.tarefas} == {0}
 
 
+def test_hrg04_cost_rows_keep_hora_por_dia(hrg04):
+    cost_rows = [
+        row
+        for row in hrg04.tarefas
+        if row.custo or row.custo_real or row.custo_projetado
+    ]
+    assert cost_rows
+    assert all(row.hora_por_dia is not None for row in cost_rows)
+    assert len({row.hora_por_dia for row in cost_rows}) > 1
+
+
 def test_hrg04_custo_projetado_matches_custo_real_through_status_date(hrg04):
     from org.mpxj.reader import UniversalProjectReader
 
