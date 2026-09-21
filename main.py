@@ -12,13 +12,7 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from config import Settings, app_data_dir, load_settings
-from models import (
-    ConjuntoDadosFaseadosTarefa,
-    LinhaBaseFaseadaTarefa,
-    Tarefa,
-    get_session_factory,
-    init_db,
-)
+from models import Tarefa, get_session_factory, init_db
 from project_parser import (
     PROJECT_FILE_EXTENSION,
     ArquivoProjetoDTO,
@@ -74,20 +68,14 @@ def collect_project_files(settings: Settings) -> list[Path]:
 
 
 def _delete_by_nome_projeto(session: Session, nome_do_projeto: str) -> None:
-    """Remove dados das 3 tabelas para o projeto informado."""
-    session.query(LinhaBaseFaseadaTarefa).filter(
-        LinhaBaseFaseadaTarefa.nome_do_projeto == nome_do_projeto
-    ).delete(synchronize_session=False)
-    session.query(ConjuntoDadosFaseadosTarefa).filter(
-        ConjuntoDadosFaseadosTarefa.nome_do_projeto == nome_do_projeto
-    ).delete(synchronize_session=False)
+    """Remove as tarefas do projeto informado."""
     session.query(Tarefa).filter(
         Tarefa.nome_do_projeto == nome_do_projeto
     ).delete(synchronize_session=False)
 
 
 def persist_arquivo(session: Session, dto: ArquivoProjetoDTO) -> None:
-    """Substitui nas 3 tabelas todos os dados daquele nome_do_projeto."""
+    """Substitui em tarefas todos os dados daquele nome_do_projeto."""
     _delete_by_nome_projeto(session, dto.nome_do_projeto)
 
     for tarefa_dto in dto.tarefas:
@@ -107,28 +95,10 @@ def persist_arquivo(session: Session, dto: ArquivoProjetoDTO) -> None:
                 tarefa_e_resumo=tarefa_dto.tarefa_e_resumo,
                 tarefa_esta_ativa=tarefa_dto.tarefa_esta_ativa,
                 wbs_da_tarefa=tarefa_dto.wbs_da_tarefa,
-            )
-        )
-
-    for faseado in dto.conjunto_dados_faseados:
-        session.add(
-            ConjuntoDadosFaseadosTarefa(
-                nome_do_projeto=faseado.nome_do_projeto,
-                id_tarefa=faseado.id_tarefa,
-                hora_por_dia=faseado.hora_por_dia,
-                custo_tarefa=faseado.custo_tarefa,
-                custo_real_da_tarefa=faseado.custo_real_da_tarefa,
-            )
-        )
-
-    for linha in dto.linhas_base_faseadas:
-        session.add(
-            LinhaBaseFaseadaTarefa(
-                nome_do_projeto=linha.nome_do_projeto,
-                id_tarefa=linha.id_tarefa,
-                hora_por_dia=linha.hora_por_dia,
-                numero_linha_base=linha.numero_linha_base,
-                custo_de_linha_base=linha.custo_de_linha_base,
+                custo=tarefa_dto.custo,
+                numero_linha_base=tarefa_dto.numero_linha_base,
+                custo_real=tarefa_dto.custo_real,
+                custo_projetado=tarefa_dto.custo_projetado,
             )
         )
 
@@ -138,13 +108,10 @@ def process_project_file(session: Session, project_path: Path) -> None:
     parse_start = time.perf_counter()
     dto = parse_project_file(project_path)
     logger.info(
-        "Leitura de '%s' concluída em %d ms "
-        "(%d tarefa(s), %d faseado(s), %d linha(s) base).",
+        "Leitura de '%s' concluída em %d ms (%d tarefa(s)).",
         project_path.name,
         _elapsed_ms(parse_start),
         len(dto.tarefas),
-        len(dto.conjunto_dados_faseados),
-        len(dto.linhas_base_faseadas),
     )
 
     persist_start = time.perf_counter()

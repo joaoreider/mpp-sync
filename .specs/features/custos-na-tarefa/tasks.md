@@ -124,10 +124,10 @@ T1 -> T2 -> T3 -> T4 -> T5
 
 **Done when**:
 
-- [ ] Reimportar o mesmo `nome_do_projeto` substitui a linha e mantém os quatro custos
-- [ ] A persistência não cria `conjunto_dados_faseados_tarefa` nem `linhas_base_faseadas_tarefa`
-- [ ] Gate check passes: `pytest -q`
-- [ ] Test count: full suite passes, with 2 new persist tests (no silent deletions)
+- [x] Reimportar o mesmo `nome_do_projeto` substitui a linha e mantém os quatro custos
+- [x] A persistência não cria `conjunto_dados_faseados_tarefa` nem `linhas_base_faseadas_tarefa`
+- [x] Gate check passes: `pytest -q`
+- [x] Test count: full suite passes, with 2 new persist tests (no silent deletions)
 
 **Tests**: integration
 **Gate**: full
