@@ -66,11 +66,11 @@ T1 -> T2 -> T3 -> T4 -> T5
 
 **Done when**:
 
-- [ ] `tarefas` tem `custo`, `numero_linha_base`, `custo_real`, `custo_projetado` não nulos
-- [ ] Banco vazio fica só com `tarefas`
-- [ ] Tabelas faseadas existentes, ou `tarefas` sem as quatro colunas, disparam drop e recriação
-- [ ] Gate check passes: `pytest tests/test_schema_custos.py -q`
-- [ ] Test count: 2 tests pass (no silent deletions)
+- [x] `tarefas` tem `custo`, `numero_linha_base`, `custo_real`, `custo_projetado` não nulos
+- [x] Banco vazio fica só com `tarefas`
+- [x] Tabelas faseadas existentes, ou `tarefas` sem as quatro colunas, disparam drop e recriação
+- [x] Gate check passes: `pytest tests/test_schema_custos.py -q`
+- [x] Test count: 2 tests pass (no silent deletions)
 
 **Tests**: unit
 **Gate**: quick

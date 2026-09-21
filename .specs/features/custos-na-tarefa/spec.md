@@ -94,8 +94,8 @@ Os custos do `.mpp` estão em séries diárias (`conjunto_dados_faseados_tarefa`
 | CUST-05 | P1: Totais de custo na tarefa | T2 | In Tasks |
 | CUST-06 | P1: Totais de custo na tarefa | T2 | In Tasks |
 | CUST-07 | P1: Totais de custo na tarefa | T2 | In Tasks |
-| CUST-08 | P1: Só a tabela tarefas | T1 | In Tasks |
-| CUST-09 | P1: Só a tabela tarefas | T1 | In Tasks |
+| CUST-08 | P1: Só a tabela tarefas | T1 | Verified |
+| CUST-09 | P1: Só a tabela tarefas | T1 | Verified |
 | CUST-10 | P1: Só a tabela tarefas | T3 | In Tasks |
 | CUST-11 | P1: Só a tabela tarefas | T3 | In Tasks |
 
