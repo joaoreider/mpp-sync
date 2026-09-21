@@ -137,13 +137,13 @@ def test_clip_to_on_or_before_zeros_days_after_status_date():
 
 def test_catalog_persisted_columns_are_unique_and_documented():
     assert set(CAMPOS_POR_COLUNA) == {
-        "custo_de_linha_base",
-        "custo_real_da_tarefa",
-        "custo_tarefa",
+        "custo",
+        "custo_real",
+        "custo_projetado",
     }
     for campo in CAMPOS_PERSISTIDOS:
         assert campo.equivalente_power_bi
-        assert campo.tabela_sql
+        assert campo.tabela_sql == "tarefas"
         assert campo.descricao
         assert campo.total_proprio
         assert campo.timephased_nativo

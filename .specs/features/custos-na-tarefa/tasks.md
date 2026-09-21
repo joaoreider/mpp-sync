@@ -151,10 +151,10 @@ T1 -> T2 -> T3 -> T4 -> T5
 
 **Done when**:
 
-- [ ] `CAMPOS_POR_COLUNA` é exatamente `custo`, `custo_real`, `custo_projetado`
-- [ ] Cada campo persistido tem `tabela_sql` igual a `tarefas`
-- [ ] Gate check passes: `pytest tests/test_cost_engine.py -q`
-- [ ] Test count: 18 tests pass (no silent deletions)
+- [x] `CAMPOS_POR_COLUNA` é exatamente `custo`, `custo_real`, `custo_projetado`
+- [x] Cada campo persistido tem `tabela_sql` igual a `tarefas`
+- [x] Gate check passes: `pytest tests/test_cost_engine.py -q`
+- [x] Test count: 18 tests pass (no silent deletions)
 
 **Tests**: unit
 **Gate**: quick

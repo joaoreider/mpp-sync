@@ -1,8 +1,9 @@
-"""Única fonte de verdade das colunas de custo faseado.
+"""Única fonte de verdade das colunas de custo da tarefa.
 
 Abra este arquivo para ver de onde cada coluna vem e como é calculada.
 Para mudar a regra, altere o spec e a função apontada em `mpp_java.py` /
-`cost_engine.py`. As colunas SQL/Power BI não mudam.
+`cost_engine.py`. O valor gravado em `tarefas` é o total da tarefa; a série
+diária fica só em memória.
 
 Motor comum: `cost_engine.timephased_or_spread` (timephased nativo do MPXJ se a
 soma dos dias estiver a ±1% do total próprio; senão rateio por dia
@@ -37,14 +38,14 @@ class CampoCustoFaseado:
 
 
 CAMPO_CUSTO_LINHA_BASE = CampoCustoFaseado(
-    coluna_sql="custo_de_linha_base",
-    equivalente_power_bi="CustoDeLinhaDeBase",
-    tabela_sql="linhas_base_faseadas_tarefa",
+    coluna_sql="custo",
+    equivalente_power_bi="Custo",
+    tabela_sql="tarefas",
     descricao=(
-        "Custo próprio da tarefa nas datas do plano base. "
-        "Total = BaselineFixedCost + BaselineCost das atribuições "
-        "(sem rollup WBS). Baseline 0 é a corrente; 1..10 são snapshots. "
-        "Pai sem custo próprio não gera linhas."
+        "Total do custo próprio da tarefa na baseline 0. "
+        "A série diária (BaselineFixedCost + BaselineCost das atribuições, "
+        "sem rollup WBS) é somada e só esse total é gravado. "
+        "Baselines 1..10 não são lidas. Pai sem custo próprio fica 0."
     ),
     eixo_datas=EIXO_BASELINE,
     total_proprio="mpp_java.task_scalar_baseline_cost",
@@ -57,16 +58,17 @@ CAMPO_CUSTO_LINHA_BASE = CampoCustoFaseado(
 )
 
 CAMPO_CUSTO_REAL = CampoCustoFaseado(
-    coluna_sql="custo_real_da_tarefa",
-    equivalente_power_bi="CustoRealDaTarefa",
-    tabela_sql="conjunto_dados_faseados_tarefa",
+    coluna_sql="custo_real",
+    equivalente_power_bi="CustoReal",
+    tabela_sql="tarefas",
     descricao=(
-        "Custo real próprio, mesmo motor da linha de base, com as datas do "
-        "cronograma atual (Start/Finish; fallback limitado a "
-        "ActualStart/ActualFinish). Total = atribuições ActualCost; se o "
-        "ActualCost da tarefa couber no teto próprio (FixedCost + "
-        "atribuições), usa esse valor (custo fixo apropriado em folha ou "
-        "em resumo WBS que guarda o custo). Rollup do pai é ignorado."
+        "Total do custo real próprio. A série diária usa o mesmo motor da "
+        "linha de base, com as datas do cronograma atual (Start/Finish; "
+        "fallback limitado a ActualStart/ActualFinish). Total = atribuições "
+        "ActualCost; se o ActualCost da tarefa couber no teto próprio "
+        "(FixedCost + atribuições), usa esse valor (custo fixo apropriado "
+        "em folha ou em resumo WBS que guarda o custo). Rollup do pai é "
+        "ignorado. O banco guarda a soma dos dias."
     ),
     eixo_datas=EIXO_CRONOGRAMA_ATUAL,
     total_proprio="mpp_java.task_scalar_actual_cost",
@@ -90,7 +92,7 @@ CAMPO_CUSTO_REMAINING = CampoCustoFaseado(
         "Série interna, não persistida. Remaining próprio = "
         "max(atribuições RemainingCost, total próprio − custo real próprio). "
         "Nativo: RemainingCost + RemainingFixedCost. Usada só no stitch de "
-        "custo_tarefa nos dias depois da Status Date."
+        "custo_projetado nos dias depois da Status Date."
     ),
     eixo_datas=EIXO_CRONOGRAMA_ATUAL,
     total_proprio="mpp_java.task_scalar_remaining_cost",
@@ -106,15 +108,14 @@ CAMPO_CUSTO_REMAINING = CampoCustoFaseado(
 )
 
 CAMPO_CUSTO_TAREFA = CampoCustoFaseado(
-    coluna_sql="custo_tarefa",
-    equivalente_power_bi="CustoTarefa",
-    tabela_sql="conjunto_dados_faseados_tarefa",
+    coluna_sql="custo_projetado",
+    equivalente_power_bi="CustoProjetado",
+    tabela_sql="tarefas",
     descricao=(
-        "Custo projetado (EAC): custo real até a Status Date do .mpp "
-        "(ProjectProperties.getStatusDate; se vazia, getCurrentDate; se "
-        "ainda vazia, hoje) + remaining nos dias seguintes. "
-        "Mesmo eixo Start/Finish da tabela. Não inclui BudgetCost. "
-        "Nos dias <= Status Date coincide com custo_real_da_tarefa."
+        "Total do custo projetado (EAC). A série diária copia o custo real "
+        "até a Status Date do .mpp (ProjectProperties.getStatusDate; se "
+        "vazia, getCurrentDate; se ainda vazia, hoje) e usa remaining nos "
+        "dias seguintes. O banco guarda a soma. Não inclui BudgetCost."
     ),
     eixo_datas=EIXO_HIBRIDO_STATUS,
     total_proprio=(
