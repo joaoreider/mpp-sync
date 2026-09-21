@@ -15,7 +15,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-APP_VERSION = "1.0.12"
+APP_VERSION = "1.0.13"
 GITHUB_REPO = "joaoreider/mpp-sync"
 ASSET_NAME = "MPPSync-Setup.exe"
 USER_AGENT = f"MPPSync/{APP_VERSION}"
