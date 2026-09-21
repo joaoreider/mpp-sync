@@ -27,16 +27,29 @@ if [[ -z "$current_version" ]]; then
   exit 1
 fi
 
-IFS='.' read -r major minor patch <<<"$current_version"
+latest_tag_version="$(
+  git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | sed -E 's/^v//' | sort -V | tail -n 1
+)"
+base_version="$(
+  printf '%s\n%s\n' "$current_version" "${latest_tag_version:-$current_version}" | sort -V | tail -n 1
+)"
+
+IFS='.' read -r major minor patch <<<"$base_version"
 major="${major:-0}"
 minor="${minor:-0}"
 patch="${patch:-0}"
 
-echo "Versão atual: v${current_version}"
+next_patch="${major}.${minor}.$((patch + 1))"
+
+echo "Versão nos arquivos: v${current_version}"
+if [[ -n "$latest_tag_version" ]]; then
+  echo "Última tag:          v${latest_tag_version}"
+fi
+echo "Base do incremento:  v${base_version}"
 echo
 echo "Tipo de incremento:"
-echo "  0) manter (${current_version})"
-echo "  1) patch  (${major}.${minor}.$((patch + 1)))  [padrão]"
+echo "  0) manter (${base_version})"
+echo "  1) patch  (${next_patch})  [padrão]"
 echo "  2) minor  (${major}.$((minor + 1)).0)"
 echo "  3) major  ($((major + 1)).0.0)"
 read -r -p "Escolha [0/1/2/3]: " bump_choice
@@ -44,10 +57,10 @@ bump_choice="${bump_choice:-1}"
 
 case "$bump_choice" in
   0)
-    new_version="${current_version}"
+    new_version="${base_version}"
     ;;
   1|"")
-    new_version="${major}.${minor}.$((patch + 1))"
+    new_version="${next_patch}"
     ;;
   2)
     new_version="${major}.$((minor + 1)).0"
@@ -61,12 +74,13 @@ case "$bump_choice" in
     ;;
 esac
 
-tag="v${new_version}"
+while git rev-parse "v${new_version}" >/dev/null 2>&1; do
+  IFS='.' read -r major minor patch <<<"$new_version"
+  new_version="${major}.${minor}.$((patch + 1))"
+  echo "Tag v${major}.${minor}.${patch} já existe. Avançando para v${new_version}."
+done
 
-if git rev-parse "$tag" >/dev/null 2>&1; then
-  echo "A tag ${tag} já existe localmente."
-  exit 1
-fi
+tag="v${new_version}"
 
 echo
 read -r -p "Mensagem de commit: " commit_message
