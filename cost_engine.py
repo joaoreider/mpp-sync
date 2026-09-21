@@ -14,31 +14,6 @@ NATIVE_INFLATE_ABS = 0.01
 AccrualKind = str  # "START" | "END" | "PRORATED"
 
 
-def integer_percent(elapsed: int, total: int) -> float:
-    """Percentual 0..1 arredondado ao inteiro mais próximo (half up).
-
-    É o % Concluída que o Project mostra na folha: dias úteis decorridos
-    dividido pela duração, em pontos percentuais inteiros.
-    """
-    if total <= 0 or elapsed <= 0:
-        return 0.0
-    if elapsed >= total:
-        return 1.0
-    return ((elapsed * 100 + total // 2) // total) / 100.0
-
-
-def accrued_amount(cost: float, percent: float, accrual: AccrualKind) -> float:
-    """Custo próprio reconhecido até o percentual, conforme o acúmulo."""
-    if cost <= COST_EPS or percent <= COST_EPS:
-        return 0.0
-    kind = accrual or "PRORATED"
-    if kind == "START":
-        return cost
-    if kind == "END":
-        return cost if percent >= 1.0 - 1e-9 else 0.0
-    return cost * percent
-
-
 def own_or_assignment(
     task_amount: float, assignment_amount: float, own_cap: float
 ) -> float:
