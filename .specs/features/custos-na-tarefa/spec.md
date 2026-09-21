@@ -87,13 +87,13 @@ Os custos do `.mpp` estão em séries diárias (`conjunto_dados_faseados_tarefa`
 
 | Requirement ID | Story | Phase | Status |
 | --- | --- | --- | --- |
-| CUST-01 | P1: Totais de custo na tarefa | T2 | In Tasks |
-| CUST-02 | P1: Totais de custo na tarefa | T2 | In Tasks |
-| CUST-03 | P1: Totais de custo na tarefa | T2 | In Tasks |
-| CUST-04 | P1: Totais de custo na tarefa | T2 | In Tasks |
-| CUST-05 | P1: Totais de custo na tarefa | T2 | In Tasks |
-| CUST-06 | P1: Totais de custo na tarefa | T2 | In Tasks |
-| CUST-07 | P1: Totais de custo na tarefa | T2 | In Tasks |
+| CUST-01 | P1: Totais de custo na tarefa | T2 | Verified |
+| CUST-02 | P1: Totais de custo na tarefa | T2 | Verified |
+| CUST-03 | P1: Totais de custo na tarefa | T2 | Verified |
+| CUST-04 | P1: Totais de custo na tarefa | T2 | Verified |
+| CUST-05 | P1: Totais de custo na tarefa | T2 | Verified |
+| CUST-06 | P1: Totais de custo na tarefa | T2 | Verified |
+| CUST-07 | P1: Totais de custo na tarefa | T2 | Verified |
 | CUST-08 | P1: Só a tabela tarefas | T1 | Verified |
 | CUST-09 | P1: Só a tabela tarefas | T1 | Verified |
 | CUST-10 | P1: Só a tabela tarefas | T3 | In Tasks |

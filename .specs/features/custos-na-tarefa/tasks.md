@@ -94,13 +94,13 @@ T1 -> T2 -> T3 -> T4 -> T5
 
 **Done when**:
 
-- [ ] Cada `TarefaDTO` traz os quatro campos; `numero_linha_base` é 0
-- [ ] `custo` soma só a baseline 0; baselines 1–10 não entram
-- [ ] Tarefa sem custo próprio fica com 0, 0 e 0
-- [ ] HRG-04 soma `custo` 1360295.86 e `custo_real` 628914.56
-- [ ] A série diária não vai no `ArquivoProjetoDTO`
-- [ ] Gate check passes: `pytest tests/test_cost_totals.py tests/test_hrg04_costs.py -q`
-- [ ] Test count: 6 tests pass (no silent deletions)
+- [x] Cada `TarefaDTO` traz os quatro campos; `numero_linha_base` é 0
+- [x] `custo` soma só a baseline 0; baselines 1–10 não entram
+- [x] Tarefa sem custo próprio fica com 0, 0 e 0
+- [x] HRG-04 soma `custo` 1360295.86 e `custo_real` 628914.56
+- [x] A série diária não vai no `ArquivoProjetoDTO`
+- [x] Gate check passes: `pytest tests/test_cost_totals.py tests/test_hrg04_costs.py -q`
+- [x] Test count: 6 tests pass (no silent deletions)
 
 **Tests**: unit
 **Gate**: quick
