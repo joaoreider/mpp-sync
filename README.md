@@ -111,6 +111,15 @@ python main.py
 
 Nesse modo, o app lê `.env` na raiz do projeto.
 
+Testes (pytest + Java para o HRG - 04):
+
+```powershell
+python -m pip install -r requirements.txt -r requirements-dev.txt
+pytest
+```
+
+A pasta `mpp/` pode ter o arquivo local `HRG - 04.mpp` (não versionado). Sem o arquivo ou sem Java, o teste de integração é ignorado. A definição de cada coluna de custo está em `field_catalog.py`; o motor diário em `cost_engine.py`; getters MPXJ em `mpp_java.py`.
+
 ## Banco
 
 Na primeira execução (ou ao detectar schema legado), o pipeline cria/recria
@@ -146,11 +155,14 @@ importação de `.mpp` apaga e reinsere as linhas daquele `nome_do_projeto`.
 | `custo_tarefa` | CustoTarefa |
 | `custo_real_da_tarefa` | CustoRealDaTarefa |
 
-Os valores gravados são **custo próprio** de cada tarefa: `FixedCost` + soma das atribuições (`Cost`). Resumos da WBS **não** recebem o rollup (`Cost` / `ActualCost` da tarefa-pai, já soma dos filhos). O custo real segue a mesma regra nas atribuições; em folha, usa `ActualCost` da tarefa quando esse valor é maior (custo fixo apropriado).
+Valores são **custo próprio** (`FixedCost` + atribuições). Rollup WBS do pai é ignorado. Resumo que **guarda** o custo no próprio FixedCost entra na série.
 
-Os valores diários vêm do timephased nativo do MS Project (`Cost` / `ActualCost`, mais `BudgetCost` quando existir), **somente se a soma dos dias não ultrapassar o total próprio em mais de 1%**. Se o nativo estiver vazio, inflado (por exemplo o total repetido em cada dia) ou a tarefa só tiver o total (custo fixo sem trabalho de recurso, caso típico de obra), o pipeline rateia esse total pelos **dias úteis** do calendário da tarefa, respeitando o acúmulo (`START`, `END` ou `PRORATED`). Dia com custo e custo real iguais a zero não é gravado. Pai sem custo próprio não gera linhas.
+- `custo_real_da_tarefa`: mesmo motor da linha de base, com as datas do cronograma atual (`Start`/`Finish`; fallback em `ActualStart`/`ActualFinish`). Nativo: `getTimephasedActualCost` (+ fixo se não estiver incluído).
+- `custo_tarefa`: projetado (EAC). Até a **Status Date** do `.mpp` copia o custo real; depois usa remaining. Sem `BudgetCost`.
 
-A coluna já é diária: no Power BI use `SUM` de `custo_tarefa` / `custo_real_da_tarefa`. **Não** multiplique por dias nem use um total de tarefa × `COUNTROWS` do calendário.
+Timephased nativo só é usado se a soma dos dias estiver a ±1% do total próprio. Caso contrário (vazio, abaixo demais, inflado, ou só o total — típico de custo fixo de obra), o pipeline rateia pelos **dias úteis** do calendário, conforme o acúmulo (`START`, `END` ou `PRORATED`). Dia com as duas colunas iguais a zero não é gravado.
+
+A coluna já é diária: no Power BI use `SUM`. **Não** multiplique por dias nem use um total de tarefa × `COUNTROWS` do calendário.
 
 Dados já importados só se corrigem **reimportando** o `.mpp` (o watcher substitui as três tabelas daquele `nome_do_projeto`).
 
@@ -164,9 +176,9 @@ Dados já importados só se corrigem **reimportando** o `.mpp` (o watcher substi
 | `numero_linha_base` | NúmeroDeLinhaBase (0 = Baseline, 1..10 = Baseline1..10) |
 | `custo_de_linha_base` | CustoDeLinhaDeBase |
 
-A linha de base gravada é **custo próprio**: `BaselineFixedCost` + soma das atribuições (`BaselineCost` da atribuição). O `BaselineCost` da tarefa-resumo (rollup dos filhos) é ignorado; pai sem custo próprio não gera linhas.
+A linha de base gravada é **custo próprio** nas datas do plano base (`BaselineStart`/`BaselineFinish`): `BaselineFixedCost` + `BaselineCost` das atribuições. O `BaselineCost` rollup do pai é ignorado; pai sem custo próprio não gera linhas. No `mpp/HRG - 04.mpp`, a soma da baseline 0 é **1.360.295,86**.
 
-A distribuição diária usa `getTimephasedBaselineCost` quando a soma dos dias não ultrapassa o total próprio em mais de 1%. Se o nativo estiver vazio, inflado ou só existir o total, o valor é rateado pelos dias úteis entre `BaselineStart` e `BaselineFinish`. Baseline sem custo próprio não gera linhas (não grava zeros).
+A distribuição diária usa `getTimephasedBaselineCost` quando a soma dos dias está a ±1% do total próprio. Se o nativo estiver vazio, abaixo demais, inflado ou só existir o total, o valor é rateado pelos dias úteis. Baseline sem custo próprio não gera linhas (não grava zeros).
 
 No Power BI filtre a baseline corrente e some a coluna diária (nomes SQL; se o modelo usar aliases OData, troque tabela/coluna):
 
