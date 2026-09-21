@@ -395,8 +395,10 @@ class WatcherService:
 
 def main() -> None:
     """Ponto de entrada do script."""
+    from app_instance import exit_if_already_running
     from gui import App
 
+    exit_if_already_running()
     App().run()
 
 

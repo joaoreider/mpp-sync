@@ -1,5 +1,5 @@
 #define MyAppName "MPPSync"
-#define MyAppVersion "1.0.13"
+#define MyAppVersion "1.0.14"
 #define MyAppPublisher "JP"
 #define MyAppExeName "MPPSync.exe"
 
@@ -21,6 +21,7 @@ ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 UninstallDisplayIcon={app}\{#MyAppExeName}
 CloseApplications=yes
+RestartApplications=no
 
 [Languages]
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
@@ -43,7 +44,8 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 ; Em update silencioso o driver já está instalado; não reinstala nem reabre o wizard.
 Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\msodbcsql.msi"" /qn IACCEPTMSODBCSQLLICENSETERMS=YES"; StatusMsg: "Instalando ODBC Driver 18 for SQL Server..."; Flags: waituntilterminated skipifsilent
 Filename: "{app}\{#MyAppExeName}"; Description: "Abrir {#MyAppName}"; Flags: nowait postinstall skipifsilent
-; Update in-app reabre o exe via script após /VERYSILENT.
+; Update in-app mata o processo, instala com /NORESTARTAPPLICATIONS e reabre uma vez.
+; RestartApplications=no evita a 2ª janela (Restart Manager + start do script).
 
 [Code]
 var
@@ -176,7 +178,7 @@ function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
 
-  // Update in-app usa /SILENT e não deve validar o wizard.
+  // Update in-app usa /VERYSILENT e não deve validar o wizard.
   if WizardSilent then
     Exit;
 

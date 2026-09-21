@@ -141,9 +141,11 @@ class App:
             return
 
         if not is_newer(release.version):
+            remote = release.version
             self._call_on_ui(
                 lambda: self._on_update_finished(
-                    f"Você já está na versão mais recente (v{APP_VERSION})."
+                    f"Você já está na versão mais recente (v{APP_VERSION}).\n"
+                    f"Release no GitHub: v{remote}."
                 )
             )
             return
@@ -157,7 +159,7 @@ class App:
             f"Versão instalada: v{APP_VERSION}\n\n"
             "Deseja baixar e instalar agora?\n"
             "Vai aparecer o UAC do Windows — aceite para continuar.\n"
-            "O app fechará durante a instalação e deve reabrir sozinho.",
+            "O app fecha, instala e reabre uma única vez.",
             parent=self.root,
         )
         if not confirmed:
@@ -186,14 +188,14 @@ class App:
         messagebox.showinfo(
             "Atualizando",
             "Aceite o UAC do Windows para instalar.\n\n"
-            "O MPP Sync será fechado pelo instalador e deve reabrir ao terminar.\n"
+            "O MPP Sync vai fechar, instalar a nova versão e reabrir uma vez.\n"
             "Se cancelar o UAC, o app continua aberto.\n\n"
             f"Se não reabrir, use o atalho do Menu Iniciar.\n"
             f"Log do update: {log_path}",
             parent=self.root,
         )
         # Não chama quit_app: se o UAC for cancelado, o app permanece.
-        # Se aceitar, o instalador fecha o processo com CLOSEAPPLICATIONS.
+        # Se aceitar, o .bat elevado mata este processo e reabre o exe novo.
         self._on_update_finished()
 
     def _on_update_error(self, message: str) -> None:

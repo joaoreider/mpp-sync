@@ -44,7 +44,7 @@ A interface permite:
 
 Ao fechar a janela, o app continua rodando na bandeja do sistema. Use o ícone da bandeja para mostrar a janela novamente, **Atualizar** ou **Sair**.
 
-O botão **Atualizar** (também no tray) consulta o último Release no GitHub, baixa o `MPPSync-Setup.exe` e aplica a atualização em modo silencioso, preservando o `.env` já configurado.
+O botão **Atualizar** (também no tray) consulta os Releases no GitHub, baixa o `MPPSync-Setup.exe` e instala em modo silencioso, preservando o `.env`. O processo antigo é encerrado depois do UAC; o instalador **não** reabre o app (evita duas janelas) — o script de update inicia o exe novo uma vez.
 
 Logs de diagnóstico ficam em:
 
